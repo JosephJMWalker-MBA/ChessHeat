@@ -7,10 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertCircle } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 export function ChessHeatClient({ initialState }: { initialState: ChessHeatState }) {
+  const { toast } = useToast();
   const [state, formAction, isPending] = useActionState(getChessHeatmap, initialState);
   const [currentFen, setCurrentFen] = useState(initialState.fen);
 
@@ -18,8 +18,15 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
     if (state.fen) {
       setCurrentFen(state.fen);
     }
-  }, [state.fen]);
-  
+    if (state.error) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: state.error,
+      });
+    }
+  }, [state, toast]);
+
   return (
     <main className="min-h-screen bg-background text-foreground p-4 sm:p-8">
       <div className="max-w-4xl mx-auto flex flex-col items-center gap-8">
@@ -29,7 +36,7 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
         </header>
 
         <div className="w-full max-w-2xl">
-          <Chessboard key={state.key} board={state.board} influenceMatrix={state.influenceMatrix} />
+          <Chessboard key={state.key} board={state.board} influenceData={state.influenceData} />
         </div>
 
         <Card className="w-full max-w-2xl">
@@ -50,13 +57,6 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
                 {isPending ? 'Analyzing...' : 'Visualize'}
               </Button>
             </form>
-            {state.error && (
-              <Alert variant="destructive" className="mt-4">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Error</AlertTitle>
-                <AlertDescription>{state.error}</AlertDescription>
-              </Alert>
-            )}
           </CardContent>
         </Card>
         

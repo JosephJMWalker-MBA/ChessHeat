@@ -2,6 +2,19 @@ export type Piece = string; // e.g., 'wP', 'bN'
 export type Board = (Piece | null)[][];
 export type InfluenceMatrix = number[][];
 
+export interface SquareDetails {
+    attackers: { piece: Piece; from: { r: number; c: number } }[];
+    defenders: { piece: Piece; from: { r: number; c: number } }[];
+}
+
+export type DetailedInfluenceMatrix = SquareDetails[][];
+
+export interface InfluenceData {
+    netInfluence: InfluenceMatrix;
+    detailedInfluence: DetailedInfluenceMatrix;
+}
+
+
 const PIECE_VALUES: { [key: string]: number } = {
   p: 1, n: 3, b: 3, r: 5, q: 9, k: 0,
 };
@@ -82,25 +95,35 @@ function getAttackedSquares(piece: Piece, r: number, c: number, board: Board): {
     return moves;
 }
 
-export function calculateInfluence(board: Board): InfluenceMatrix {
-  const influenceMatrix: InfluenceMatrix = Array(8).fill(null).map(() => Array(8).fill(0));
+export function calculateInfluence(board: Board): InfluenceData {
+  const netInfluence: InfluenceMatrix = Array(8).fill(null).map(() => Array(8).fill(0));
+  const detailedInfluence: DetailedInfluenceMatrix = Array(8).fill(null).map(() => 
+    Array(8).fill(null).map(() => ({ attackers: [], defenders: [] }))
+  );
 
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
       const piece = board[r][c];
       if (!piece) continue;
 
-      const color = piece[0];
-      const type = piece[1].toLowerCase();
-      const value = PIECE_VALUES[type] * (color === 'w' ? 1 : -1);
-
+      const pieceColor = piece[0];
+      const pieceType = piece[1].toLowerCase();
+      const pieceValue = PIECE_VALUES[pieceType] * (pieceColor === 'w' ? 1 : -1);
+      
       const attackedSquares = getAttackedSquares(piece, r, c, board);
       
       for (const { r: ar, c: ac } of attackedSquares) {
-        influenceMatrix[ar][ac] += value;
+        netInfluence[ar][ac] += pieceValue;
+        
+        const targetPiece = board[ar][ac];
+        if (targetPiece && targetPiece[0] === pieceColor) {
+             detailedInfluence[ar][ac].defenders.push({ piece, from: {r,c} });
+        } else {
+             detailedInfluence[ar][ac].attackers.push({ piece, from: {r,c} });
+        }
       }
     }
   }
 
-  return influenceMatrix;
+  return { netInfluence, detailedInfluence };
 }

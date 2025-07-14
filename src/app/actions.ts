@@ -3,12 +3,12 @@
 
 import { generateInsights } from '@/ai/flows/generate-insights';
 import { calculateInfluence, parseFEN } from '@/lib/chess-logic';
-import type { Board, InfluenceMatrix } from '@/lib/chess-logic';
+import type { Board, InfluenceData } from '@/lib/chess-logic';
 import { z } from 'zod';
 
 export interface ChessHeatState {
   board: Board;
-  influenceMatrix: InfluenceMatrix;
+  influenceData: InfluenceData;
   insights: string;
   fen: string;
   error?: string;
@@ -48,12 +48,24 @@ export async function getChessHeatmap(
 
   try {
     const board = parseFEN(fenInput);
-    const influenceMatrix = calculateInfluence(board);
-    const { insights } = await generateInsights({ netInfluenceMatrix: influenceMatrix });
+    const influenceData = calculateInfluence(board);
+    
+    // Prepare a serializable version of detailed influence for the AI
+    const serializableDetailedInfluence = influenceData.detailedInfluence.map(row => 
+      row.map(square => ({
+        attackers: square.attackers.map(a => a.piece),
+        defenders: square.defenders.map(d => d.piece),
+      }))
+    );
+    
+    const { insights } = await generateInsights({ 
+      netInfluenceMatrix: influenceData.netInfluence,
+      detailedInfluence: serializableDetailedInfluence,
+    });
 
     return {
       board,
-      influenceMatrix,
+      influenceData,
       insights,
       fen: fenInput,
       key: Math.random(),
