@@ -23,12 +23,12 @@ function getBackgroundColor(value: number, min: number, max: number): string {
   
   if (value > 0) {
     // Primary color: Saturated blue (hsl(207, 44%, 49%))
-    const intensity = Math.min(1, value / (max || 1));
-    return `hsla(207, 44%, 49%, ${intensity * 0.65})`;
+    const intensity = Math.min(1, Math.sqrt(value / (max || 1)));
+    return `hsla(207, 44%, 49%, ${intensity * 0.75})`;
   } else {
     // Red for negative influence
-    const intensity = Math.min(1, Math.abs(value) / (Math.abs(min) || 1));
-    return `hsla(0, 70%, 50%, ${intensity * 0.65})`;
+    const intensity = Math.min(1, Math.sqrt(Math.abs(value) / (Math.abs(min) || 1)));
+    return `hsla(0, 70%, 50%, ${intensity * 0.75})`;
   }
 }
 
@@ -62,54 +62,60 @@ export function Chessboard({ board, influenceData, className }: ChessboardProps)
 
   return (
     <TooltipProvider>
-      <div className={cn("grid grid-cols-8 aspect-square shadow-lg border border-border relative", className)}>
-          {ranks.map((rank, i) => (
-              <div key={rank} className="absolute -left-5 w-4 h-[12.5%] text-xs font-medium text-muted-foreground flex items-center justify-center" style={{top: `${i * 12.5}%`}}>
-                  {rank}
-              </div>
-          ))}
-          {files.map((file, i) => (
-              <div key={file} className="absolute -bottom-5 h-4 w-[12.5%] text-xs font-medium text-muted-foreground flex items-center justify-center" style={{left: `${i * 12.5}%`}}>
-                  {file}
-              </div>
-          ))}
-          
-        {board.map((row, r) => row.map((piece, c) => {
-          const isLightSquare = (r + c) % 2 !== 0;
-          const influence = influenceData.netInfluence[r][c] || 0;
-          const squareDetails = influenceData.detailedInfluence[r][c];
-          const heatColor = getBackgroundColor(influence, minValue, maxValue);
-          
-          const whiteAttackers = squareDetails.attackers.filter(p => p.piece[0] === 'w');
-          const blackAttackers = squareDetails.attackers.filter(p => p.piece[0] === 'b');
-
-          return (
-            <Tooltip key={`${r}-${c}`} delayDuration={100}>
-              <TooltipTrigger asChild>
-                <div
-                  className={cn('relative flex items-center justify-center', isLightSquare ? 'bg-card' : 'bg-muted/60')}
-                >
-                   <div className="absolute inset-0 transition-colors duration-500" style={{ backgroundColor: heatColor }} />
-                   <Piece piece={piece} />
-                   {influence !== 0 && (
-                      <span className="absolute bottom-0 right-1 text-[10px] font-bold text-white/90 mix-blend-difference pointer-events-none">
-                          {influence > 0 ? `+${influence.toFixed(0)}` : influence.toFixed(0)}
-                      </span>
-                   )}
+      <div className={cn("aspect-square shadow-lg border border-border relative", className)}>
+        <div className="absolute -left-5 top-0 h-full w-4 flex flex-col">
+            {ranks.map((rank) => (
+                <div key={rank} className="flex-1 text-xs font-medium text-muted-foreground flex items-center justify-center">
+                    {rank}
                 </div>
-              </TooltipTrigger>
-              {(squareDetails.attackers.length > 0 || squareDetails.defenders.length > 0) && (
-                <TooltipContent>
-                    <div className="p-1 space-y-2">
-                      <PieceList title="Attackers (White)" pieces={whiteAttackers} />
-                      <PieceList title="Attackers (Black)" pieces={blackAttackers} />
-                      <PieceList title="Defenders" pieces={squareDetails.defenders} />
+            ))}
+        </div>
+        <div className="absolute -bottom-5 left-0 w-full h-4 flex">
+            {files.map((file) => (
+                <div key={file} className="flex-1 text-xs font-medium text-muted-foreground flex items-center justify-center">
+                    {file}
+                </div>
+            ))}
+        </div>
+          
+        <div className="grid grid-cols-8 grid-rows-8 h-full w-full">
+            {board.map((row, r) => row.map((piece, c) => {
+            const isLightSquare = (r + c) % 2 !== 0;
+            const influence = influenceData.netInfluence[r][c] || 0;
+            const squareDetails = influenceData.detailedInfluence[r][c];
+            const heatColor = getBackgroundColor(influence, minValue, maxValue);
+            
+            const whiteAttackers = squareDetails.attackers.filter(p => p.piece[0] === 'w');
+            const blackAttackers = squareDetails.attackers.filter(p => p.piece[0] === 'b');
+
+            return (
+                <Tooltip key={`${r}-${c}`} delayDuration={100}>
+                <TooltipTrigger asChild>
+                    <div
+                    className={cn('relative flex items-center justify-center', isLightSquare ? 'bg-card' : 'bg-muted/60')}
+                    >
+                    <div className="absolute inset-0 transition-colors duration-500" style={{ backgroundColor: heatColor }} />
+                    <Piece piece={piece} />
+                    {influence !== 0 && (
+                        <span className="absolute bottom-0 right-1 text-[10px] font-bold text-white/90 mix-blend-difference pointer-events-none">
+                            {influence > 0 ? `+${influence.toFixed(0)}` : influence.toFixed(0)}
+                        </span>
+                    )}
                     </div>
-                </TooltipContent>
-              )}
-            </Tooltip>
-          )
-        }))}
+                </TooltipTrigger>
+                {(squareDetails.attackers.length > 0 || squareDetails.defenders.length > 0) && (
+                    <TooltipContent>
+                        <div className="p-1 space-y-2">
+                        <PieceList title="Attackers (White)" pieces={whiteAttackers} />
+                        <PieceList title="Attackers (Black)" pieces={blackAttackers} />
+                        <PieceList title="Defenders" pieces={squareDetails.defenders} />
+                        </div>
+                    </TooltipContent>
+                )}
+                </Tooltip>
+            )
+            }))}
+        </div>
       </div>
     </TooltipProvider>
   )
