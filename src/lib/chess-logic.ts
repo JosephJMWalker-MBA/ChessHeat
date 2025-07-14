@@ -1,0 +1,106 @@
+export type Piece = string; // e.g., 'wP', 'bN'
+export type Board = (Piece | null)[][];
+export type InfluenceMatrix = number[][];
+
+const PIECE_VALUES: { [key: string]: number } = {
+  p: 1, n: 3, b: 3, r: 5, q: 9, k: 0,
+};
+
+// Parses the piece placement part of a FEN string.
+export function parseFEN(fen: string): Board {
+  const board: Board = Array(8).fill(null).map(() => Array(8).fill(null));
+  const [piecePlacement] = fen.split(' ');
+  const ranks = piecePlacement.split('/');
+
+  if (ranks.length !== 8) throw new Error('Invalid FEN: Must have 8 ranks.');
+
+  for (let r = 0; r < 8; r++) {
+    let fileIndex = 0;
+    for (const char of ranks[r]) {
+      if (fileIndex >= 8) break;
+      if (isNaN(parseInt(char))) {
+        const color = char === char.toUpperCase() ? 'w' : 'b';
+        board[r][fileIndex] = `${color}${char.toUpperCase()}`;
+        fileIndex++;
+      } else {
+        fileIndex += parseInt(char);
+      }
+    }
+  }
+  return board;
+}
+
+
+function getAttackedSquares(piece: Piece, r: number, c: number, board: Board): {r: number, c: number}[] {
+    const moves: {r: number, c: number}[] = [];
+    const color = piece[0];
+    const type = piece[1];
+
+    const is_valid = (r: number, c: number) => r >= 0 && r < 8 && c >= 0 && c < 8;
+
+    const add_line_moves = (dr: number, dc: number) => {
+        let cr = r + dr, cc = c + dc;
+        while (is_valid(cr, cc)) {
+            moves.push({r: cr, c: cc});
+            if (board[cr][cc] !== null) {
+                break; // stop after hitting a piece
+            }
+            cr += dr;
+            cc += dc;
+        }
+    };
+    
+    switch (type) {
+        case 'P':
+            const forward = color === 'w' ? -1 : 1;
+            if (is_valid(r + forward, c - 1)) moves.push({r: r + forward, c: c - 1});
+            if (is_valid(r + forward, c + 1)) moves.push({r: r + forward, c: c + 1});
+            break;
+        case 'N':
+            const knight_moves = [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]];
+            knight_moves.forEach(([dr, dc]) => {
+                if (is_valid(r + dr, c + dc)) moves.push({r: r + dr, c: c + dc});
+            });
+            break;
+        case 'B':
+            add_line_moves(1, 1); add_line_moves(1, -1); add_line_moves(-1, 1); add_line_moves(-1, -1);
+            break;
+        case 'R':
+            add_line_moves(1, 0); add_line_moves(-1, 0); add_line_moves(0, 1); add_line_moves(0, -1);
+            break;
+        case 'Q':
+            add_line_moves(1, 1); add_line_moves(1, -1); add_line_moves(-1, 1); add_line_moves(-1, -1);
+            add_line_moves(1, 0); add_line_moves(-1, 0); add_line_moves(0, 1); add_line_moves(0, -1);
+            break;
+        case 'K':
+            const king_moves = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
+            king_moves.forEach(([dr, dc]) => {
+                if (is_valid(r + dr, c + dc)) moves.push({r: r + dr, c: c + dc});
+            });
+            break;
+    }
+    return moves;
+}
+
+export function calculateInfluence(board: Board): InfluenceMatrix {
+  const influenceMatrix: InfluenceMatrix = Array(8).fill(null).map(() => Array(8).fill(0));
+
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const piece = board[r][c];
+      if (!piece) continue;
+
+      const color = piece[0];
+      const type = piece[1].toLowerCase();
+      const value = PIECE_VALUES[type] * (color === 'w' ? 1 : -1);
+
+      const attackedSquares = getAttackedSquares(piece, r, c, board);
+      
+      for (const { r: ar, c: ac } of attackedSquares) {
+        influenceMatrix[ar][ac] += value;
+      }
+    }
+  }
+
+  return influenceMatrix;
+}
