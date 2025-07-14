@@ -55,8 +55,9 @@ function getAttackedSquares(piece: Piece, r: number, c: number, board: Board): {
         let cr = r + dr, cc = c + dc;
         while (is_valid(cr, cc)) {
             moves.push({r: cr, c: cc});
-            if (board[cr][cc] !== null) {
-                break; // stop after hitting a piece
+            // Stop after hitting any piece, as influence doesn't pass through for this calculation.
+            if (board[cr][cc] !== null) { 
+                break;
             }
             cr += dr;
             cc += dc;
@@ -66,6 +67,7 @@ function getAttackedSquares(piece: Piece, r: number, c: number, board: Board): {
     switch (type) {
         case 'P':
             const forward = color === 'w' ? -1 : 1;
+            // Pawns only attack diagonally.
             if (is_valid(r + forward, c - 1)) moves.push({r: r + forward, c: c - 1});
             if (is_valid(r + forward, c + 1)) moves.push({r: r + forward, c: c + 1});
             break;
