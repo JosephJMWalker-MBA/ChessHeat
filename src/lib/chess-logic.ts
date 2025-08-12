@@ -1,3 +1,4 @@
+
 export type Piece = string; // e.g., 'wP', 'bN'
 export type Board = (Piece | null)[][];
 export type InfluenceMatrix = number[][];
@@ -55,8 +56,9 @@ function getAttackedSquares(piece: Piece, r: number, c: number, board: Board): {
         let cr = r + dr, cc = c + dc;
         while (is_valid(cr, cc)) {
             moves.push({r: cr, c: cc});
-            // Stop after hitting any piece, as influence doesn't pass through for this calculation.
-            if (board[cr][cc] !== null) { 
+            const targetPiece = board[cr][cc];
+            // Stop if the square is occupied by an enemy piece. The influence stops here.
+            if (targetPiece && targetPiece[0] !== color) {
                 break;
             }
             cr += dr;
@@ -121,6 +123,7 @@ export function calculateInfluence(board: Board): InfluenceData {
         if (targetPiece && targetPiece[0] === pieceColor) {
              detailedInfluence[ar][ac].defenders.push({ piece, from: {r,c} });
         } else {
+             // If the target square is empty or has an enemy piece, it's an attack.
              detailedInfluence[ar][ac].attackers.push({ piece, from: {r,c} });
         }
       }
