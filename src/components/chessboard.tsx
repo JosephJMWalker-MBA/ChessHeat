@@ -2,7 +2,7 @@
 'use client';
 
 import { Piece } from './chess-pieces';
-import type { Board, InfluenceData } from '@/lib/chess-logic';
+import type { Board, InfluenceData, SquareDetails } from '@/lib/chess-logic';
 import { cn } from '@/lib/utils';
 import {
   Tooltip,
@@ -10,12 +10,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import type { SelectedSquare } from './chess-heat-client';
 
 interface ChessboardProps {
   board: Board;
   influenceData: InfluenceData;
   className?: string;
   orientation?: 'w' | 'b';
+  onSquareSelect: (r: number, c: number) => void;
+  selectedSquare: SelectedSquare;
 }
 
 function getBackgroundColor(value: number, absoluteMax: number): string {
@@ -60,8 +63,7 @@ function getBoardView(board: Board, orientation: 'w' | 'b') {
     return board;
   }
   // For black's orientation, we need to reverse rows and columns
-  const reversedBoard = board.map(row => [...row].reverse()).reverse();
-  return reversedBoard;
+  return board.map(row => [...row].reverse()).reverse();
 }
 
 function getInfluenceDataView(influenceData: InfluenceData, orientation: 'w' | 'b') {
@@ -75,7 +77,7 @@ function getInfluenceDataView(influenceData: InfluenceData, orientation: 'w' | '
 }
 
 
-export function Chessboard({ board, influenceData, className, orientation = 'w' }: ChessboardProps) {
+export function Chessboard({ board, influenceData, className, orientation = 'w', onSquareSelect, selectedSquare }: ChessboardProps) {
   const allValues = influenceData.netInfluence.flat();
   const absoluteMax = Math.max(...allValues.map(v => Math.abs(v)), 1);
 
@@ -115,21 +117,30 @@ export function Chessboard({ board, influenceData, className, orientation = 'w' 
             
             const whiteAttackers = squareDetails.attackers.filter(p => p.piece[0] === 'w');
             const blackAttackers = squareDetails.attackers.filter(p => p.piece[0] === 'b');
+            const isSelected = selectedSquare?.r === r && selectedSquare?.c === c;
 
             return (
-                <Tooltip key={`${r}-${c}`} delayDuration={100}>
+              <Tooltip key={`${r}-${c}`} delayDuration={100}>
                 <TooltipTrigger asChild>
-                    <div
-                    className={cn('relative flex items-center justify-center', isLightSquare ? 'bg-card' : 'bg-muted/60')}
-                    >
+                  <button
+                    type="button"
+                    onClick={() => onSquareSelect(r, c)}
+                    onFocus={() => onSquareSelect(r, c)}
+                    aria-label={`Square ${files[c]}${ranks[r]}`}
+                    className={cn(
+                      'relative flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 z-10',
+                      isLightSquare ? 'bg-card' : 'bg-muted/60'
+                    )}
+                  >
                     <div className="absolute inset-0 transition-colors duration-500" style={{ backgroundColor: heatColor }} />
+                    {isSelected && <div className="absolute inset-0 ring-2 ring-accent z-20" />}
                     <Piece piece={piece} />
                     {influence !== 0 && (
                         <span className="absolute bottom-0 right-1 text-[10px] font-bold text-white/90 mix-blend-difference pointer-events-none">
                             {influence > 0 ? `+${influence.toFixed(0)}` : influence.toFixed(0)}
                         </span>
                     )}
-                    </div>
+                  </button>
                 </TooltipTrigger>
                 {(squareDetails.attackers.length > 0 || squareDetails.defenders.length > 0) && (
                     <TooltipContent>
