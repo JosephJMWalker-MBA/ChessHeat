@@ -31,7 +31,9 @@ export function parseFEN(fen: string): Board {
   for (let r = 0; r < 8; r++) {
     let fileIndex = 0;
     for (const char of ranks[r]) {
-      if (fileIndex >= 8) break;
+      if (fileIndex > 8) {
+        break; // Should be caught by the fileIndex !== 8 check later
+      }
       if (isNaN(parseInt(char))) {
         const color = char === char.toUpperCase() ? 'w' : 'b';
         board[r][fileIndex] = `${color}${char.toUpperCase()}`;
@@ -39,6 +41,9 @@ export function parseFEN(fen: string): Board {
       } else {
         fileIndex += parseInt(char);
       }
+    }
+    if (fileIndex !== 8) {
+      throw new Error(`Invalid FEN: Rank ${8 - r} does not have 8 files.`);
     }
   }
   return board;
