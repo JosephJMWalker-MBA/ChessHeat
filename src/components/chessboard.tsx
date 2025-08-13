@@ -1,3 +1,4 @@
+
 'use client';
 
 import { Piece } from './chess-pieces';
@@ -16,21 +17,22 @@ interface ChessboardProps {
   className?: string;
 }
 
-function getBackgroundColor(value: number, min: number, max: number): string {
-  if (value === 0) {
+function getBackgroundColor(value: number, absoluteMax: number): string {
+  if (value === 0 || absoluteMax === 0) {
     return 'transparent';
   }
+
+  const intensity = Math.min(1, Math.sqrt(Math.abs(value) / absoluteMax));
   
   if (value > 0) {
-    // Primary color: Saturated blue (hsl(207, 44%, 49%))
-    const intensity = Math.min(1, Math.sqrt(value / (max || 1)));
+    // White's influence: Primary color (blue)
     return `hsla(207, 44%, 49%, ${intensity * 0.75})`;
   } else {
-    // Red for negative influence
-    const intensity = Math.min(1, Math.sqrt(Math.abs(value) / (Math.abs(min) || 1)));
-    return `hsla(0, 70%, 50%, ${intensity * 0.75})`;
+    // Black's influence: A contrasting orange
+    return `hsla(30, 90%, 50%, ${intensity * 0.75})`;
   }
 }
+
 
 const PIECE_NAMES: Record<string, string> = {
   K: 'King', Q: 'Queen', R: 'Rook', B: 'Bishop', N: 'Knight', P: 'Pawn'
@@ -54,8 +56,7 @@ function PieceList({ title, pieces }: { title: string, pieces: { piece: string }
 
 export function Chessboard({ board, influenceData, className }: ChessboardProps) {
   const allValues = influenceData.netInfluence.flat();
-  const maxValue = Math.max(...allValues.filter(v => v > 0), 1);
-  const minValue = Math.min(...allValues.filter(v => v < 0), -1);
+  const absoluteMax = Math.max(...allValues.map(v => Math.abs(v)), 1);
 
   const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
   const ranks = ['8', '7', '6', '5', '4', '3', '2', '1'];
@@ -83,7 +84,7 @@ export function Chessboard({ board, influenceData, className }: ChessboardProps)
             const isLightSquare = (r + c) % 2 !== 0;
             const influence = influenceData.netInfluence[r][c] || 0;
             const squareDetails = influenceData.detailedInfluence[r][c];
-            const heatColor = getBackgroundColor(influence, minValue, maxValue);
+            const heatColor = getBackgroundColor(influence, absoluteMax);
             
             const whiteAttackers = squareDetails.attackers.filter(p => p.piece[0] === 'w');
             const blackAttackers = squareDetails.attackers.filter(p => p.piece[0] === 'b');
