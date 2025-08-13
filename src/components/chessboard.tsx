@@ -22,7 +22,7 @@ interface ChessboardProps {
 }
 
 function getBackgroundColor(value: number, absoluteMax: number): string {
-  if (value === 0 || absoluteMax === 0) {
+  if (absoluteMax === 0) {
     return 'transparent';
   }
 
@@ -31,10 +31,12 @@ function getBackgroundColor(value: number, absoluteMax: number): string {
   if (value > 0) {
     // White's influence: Primary color (blue)
     return `hsla(207, 44%, 49%, ${intensity * 0.75})`;
-  } else {
+  } else if (value < 0) {
     // Black's influence: A contrasting orange
     return `hsla(30, 90%, 50%, ${intensity * 0.75})`;
   }
+
+  return 'transparent';
 }
 
 
