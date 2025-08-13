@@ -8,11 +8,13 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
+import { SwitchCamera } from 'lucide-react';
 
 export function ChessHeatClient({ initialState }: { initialState: ChessHeatState }) {
   const { toast } = useToast();
   const [state, formAction, isPending] = useActionState(getChessHeatmap, initialState);
   const [currentFen, setCurrentFen] = useState(initialState.fen);
+  const [orientation, setOrientation] = useState<'w' | 'b'>('w');
 
   useEffect(() => {
     if (state.fen) {
@@ -35,8 +37,22 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
           <p className="mt-2 text-lg text-muted-foreground">Visualize square control and tactical pressure on the chessboard.</p>
         </header>
 
-        <div className="w-full max-w-2xl">
-          <Chessboard key={state.key} board={state.board} influenceData={state.influenceData} />
+        <div className="w-full max-w-2xl relative">
+          <Chessboard 
+            key={`${state.key}-${orientation}`} 
+            board={state.board} 
+            influenceData={state.influenceData} 
+            orientation={orientation}
+          />
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => setOrientation(o => (o === 'w' ? 'b' : 'w'))}
+            aria-label="Flip board"
+            className="absolute top-2 right-2 z-20 bg-card/80 hover:bg-card"
+          >
+            <SwitchCamera className="h-5 w-5" />
+          </Button>
         </div>
 
         <Card className="w-full max-w-2xl">

@@ -15,6 +15,7 @@ interface ChessboardProps {
   board: Board;
   influenceData: InfluenceData;
   className?: string;
+  orientation?: 'w' | 'b';
 }
 
 function getBackgroundColor(value: number, absoluteMax: number): string {
@@ -54,12 +55,38 @@ function PieceList({ title, pieces }: { title: string, pieces: { piece: string }
   )
 }
 
-export function Chessboard({ board, influenceData, className }: ChessboardProps) {
+function getBoardView(board: Board, orientation: 'w' | 'b') {
+  if (orientation === 'w') {
+    return board;
+  }
+  // For black's orientation, we need to reverse rows and columns
+  const reversedBoard = board.map(row => [...row].reverse()).reverse();
+  return reversedBoard;
+}
+
+function getInfluenceDataView(influenceData: InfluenceData, orientation: 'w' | 'b') {
+    if (orientation === 'w') {
+        return influenceData;
+    }
+    const { netInfluence, detailedInfluence } = influenceData;
+    const reversedNet = netInfluence.map(row => [...row].reverse()).reverse();
+    const reversedDetailed = detailedInfluence.map(row => [...row].reverse()).reverse();
+    return { netInfluence: reversedNet, detailedInfluence: reversedDetailed };
+}
+
+
+export function Chessboard({ board, influenceData, className, orientation = 'w' }: ChessboardProps) {
   const allValues = influenceData.netInfluence.flat();
   const absoluteMax = Math.max(...allValues.map(v => Math.abs(v)), 1);
 
-  const files = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-  const ranks = ['8', '7', '6', '5', '4', '3', '2', '1'];
+  const whiteFiles = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+  const whiteRanks = ['8', '7', '6', '5', '4', '3', '2', '1'];
+  
+  const files = orientation === 'w' ? whiteFiles : [...whiteFiles].reverse();
+  const ranks = orientation === 'w' ? whiteRanks : [...whiteRanks].reverse();
+
+  const boardView = getBoardView(board, orientation);
+  const influenceDataView = getInfluenceDataView(influenceData, orientation);
 
   return (
     <TooltipProvider>
@@ -80,10 +107,10 @@ export function Chessboard({ board, influenceData, className }: ChessboardProps)
         </div>
           
         <div className="grid grid-cols-8 grid-rows-8 h-full w-full">
-            {board.map((row, r) => row.map((piece, c) => {
+            {boardView.map((row, r) => row.map((piece, c) => {
             const isLightSquare = (r + c) % 2 !== 0;
-            const influence = influenceData.netInfluence[r][c] || 0;
-            const squareDetails = influenceData.detailedInfluence[r][c];
+            const influence = influenceDataView.netInfluence[r][c] || 0;
+            const squareDetails = influenceDataView.detailedInfluence[r][c];
             const heatColor = getBackgroundColor(influence, absoluteMax);
             
             const whiteAttackers = squareDetails.attackers.filter(p => p.piece[0] === 'w');
