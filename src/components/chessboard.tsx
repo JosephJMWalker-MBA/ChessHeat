@@ -26,6 +26,7 @@ function getBackgroundColor(value: number, absoluteMax: number): string {
     return 'transparent';
   }
 
+  // Symmetrically scale intensity based on the single max absolute value
   const intensity = Math.min(1, Math.sqrt(Math.abs(value) / absoluteMax));
   
   // Using hsla for color blending with alpha transparency
@@ -61,6 +62,7 @@ function getInfluenceDataView(influenceData: InfluenceData, orientation: 'w' | '
 
 
 export function Chessboard({ board, influenceData, className, orientation = 'w', onSquareSelect, selectedSquare }: ChessboardProps) {
+  // Use the maximum absolute value for symmetric scaling.
   const allValues = influenceData.netInfluence.flat();
   const absoluteMax = Math.max(...allValues.map(v => Math.abs(v)), 1);
 
