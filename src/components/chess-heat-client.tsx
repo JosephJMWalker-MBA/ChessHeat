@@ -9,13 +9,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { SwitchCamera, Trash2 } from 'lucide-react';
-import { SquareDetailsDisplay } from './square-details-display';
 import type { SquareDetails, Board, Piece as PieceType } from '@/lib/chess-logic';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import { Piece } from './chess-pieces';
 import { PieceBin } from './piece-bin';
 import { buildFen } from '@/lib/chess-logic';
+import { HistoryPanel } from './history-panel';
+import { Sidebar, SidebarContent, SidebarInset, SidebarProvider, SidebarTrigger } from './ui/sidebar';
 
 export type SelectedSquare = { r: number; c: number } | null;
 
@@ -29,7 +29,6 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
   const [isClient, setIsClient] = useState(false);
   const [isAnalyzing, startTransition] = useTransition();
 
-  // We need to keep a separate board state for the interactive editor
   const [editorBoard, setEditorBoard] = useState<Board>(initialState.board);
   const [currentFen, setCurrentFen] = useState(initialState.fen);
 
@@ -38,11 +37,9 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
   }, []);
   
   useEffect(() => {
-    // This effect synchronizes the editor's board state with the server's state
-    // when the server responds with a new analysis.
     setEditorBoard(state.board);
     setCurrentFen(state.fen);
-  }, [state.key]); // Use the key to detect when a new analysis is complete
+  }, [state.key]); 
 
 
   useEffect(() => {
@@ -53,7 +50,6 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
         description: state.error,
       });
     }
-    // Reset selected square on new analysis
     setSelectedSquare(null);
   }, [state, toast]);
   
@@ -64,7 +60,10 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
     const canonicalR = orientation === 'w' ? r : 7 - r;
     const canonicalC = orientation === 'w' ? c : 7 - c;
     
-    return state.influenceData.detailedInfluence[canonicalR][canonicalC];
+    if (state.influenceData.detailedInfluence[canonicalR] && state.influenceData.detailedInfluence[canonicalR][canonicalC]) {
+      return state.influenceData.detailedInfluence[canonicalR][canonicalC];
+    }
+    return null;
   }
 
   const handleSquareSelect = (r: number, c: number) => {
@@ -78,7 +77,6 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
   const handlePieceDrop = (piece: PieceType, toR: number, toC: number, from: {r: number, c: number} | null) => {
     const newBoard = editorBoard.map(row => [...row]);
     
-    // If piece came from another square, clear the old square
     if (from) {
       newBoard[from.r][from.c] = null;
     }
@@ -86,7 +84,6 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
     newBoard[toR][toC] = piece;
     setEditorBoard(newBoard);
 
-    // Update FEN and trigger analysis
     const newFen = buildFen(newBoard, 'w', '-', '-', 0, 1);
     setCurrentFen(newFen);
 
@@ -111,93 +108,77 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
 
   return (
     <DndProvider backend={HTML5Backend}>
-      <main className="min-h-screen bg-background text-foreground p-4 sm:p-8">
-        <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-start gap-8">
-          <div className="w-full lg:w-auto lg:flex-shrink-0 flex flex-col items-center gap-8">
-            <header className="text-center lg:hidden">
-              <h1 className="text-4xl sm:text-5xl font-headline font-bold text-primary">ChessHeat</h1>
-              <p className="mt-2 text-lg text-muted-foreground">Interactive board editor & influence visualizer.</p>
-            </header>
-
-            <div className="w-full max-w-2xl lg:max-w-[60vh] relative">
-              {isClient ? (
-                <Chessboard
-                  key={`${state.key}-${orientation}`}
-                  board={editorBoard}
-                  influenceData={state.influenceData}
-                  orientation={orientation}
-                  onSquareSelect={handleSquareSelect}
-                  selectedSquare={selectedSquare}
-                  onPieceDrop={handlePieceDrop}
-                />
-              ) : <Skeleton className="aspect-square w-full" />}
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setOrientation(o => (o === 'w' ? 'b' : 'w'))}
-                aria-label="Flip board"
-                className="absolute top-2 right-2 z-20 bg-card/80 hover:bg-card"
-              >
-                <SwitchCamera className="h-5 w-5" />
-              </Button>
-            </div>
-            
-            <Card className="w-full max-w-2xl lg:max-w-[60vh]">
-                <CardHeader className="flex flex-row items-center justify-between">
-                    <div>
-                        <CardTitle className="font-headline">Piece Box</CardTitle>
-                        <CardDescription>Drag pieces to the board.</CardDescription>
-                    </div>
-                    <Button variant="outline" size="icon" onClick={handleClearBoard} aria-label="Clear Board">
-                        <Trash2 className="h-5 w-5"/>
+      <SidebarProvider defaultOpen={true}>
+        <div className="min-h-screen bg-background text-foreground">
+          <SidebarInset className="p-4 sm:p-6 lg:p-8">
+            <main className="flex-1 flex flex-col gap-6">
+              <header className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <h1 className="text-3xl sm:text-4xl font-headline font-bold text-primary">ChessHeat</h1>
+                  <p className="mt-1 text-md text-muted-foreground hidden md:block">Interactive board editor & influence visualizer.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => setOrientation(o => (o === 'w' ? 'b' : 'w'))}
+                        aria-label="Flip board"
+                        className="bg-card/80 hover:bg-card"
+                    >
+                        <SwitchCamera className="h-5 w-5" />
                     </Button>
-                </CardHeader>
-                <CardContent className="grid grid-cols-6 gap-2">
-                    {pieceSet.map(p => <PieceBin key={p} piece={p} />)}
-                </CardContent>
-            </Card>
-
-          </div>
-
-          <div className="w-full flex-grow flex flex-col gap-8">
-              <header className="text-left hidden lg:block">
-                <h1 className="text-5xl font-headline font-bold text-primary">ChessHeat</h1>
-                <p className="mt-2 text-lg text-muted-foreground">Interactive board editor & influence visualizer.</p>
+                    <SidebarTrigger />
+                </div>
               </header>
-              
-              <SquareDetailsDisplay details={getSquareDetails()} orientation={orientation} selectedSquare={selectedSquare} />
 
-              <Card className="w-full">
-                  <CardHeader>
-                      <CardTitle className="font-headline">AI Insights</CardTitle>
-                      <CardDescription>Highlights of squares with complex tactical interdependencies.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                      {isPending || isAnalyzing ? (
-                      <div className="space-y-2">
-                          <Skeleton className="h-4 w-full" />
-                          <Skeleton className="h-4 w-full" />
-                          <Skeleton className="h-4 w-3/4" />
-                      </div>
-                      ) : (
-                      <p className="text-sm whitespace-pre-wrap leading-relaxed">{state.insights}</p>
-                      )}
-                  </CardContent>
-              </Card>
+              <div className="w-full flex-1 flex flex-col items-center justify-center gap-6">
+                  <div className="w-full max-w-4xl mx-auto">
+                    {isClient ? (
+                        <Chessboard
+                        key={`${state.key}-${orientation}`}
+                        board={editorBoard}
+                        influenceData={state.influenceData}
+                        orientation={orientation}
+                        onSquareSelect={handleSquareSelect}
+                        selectedSquare={selectedSquare}
+                        onPieceDrop={handlePieceDrop}
+                        />
+                    ) : <Skeleton className="aspect-square w-full" />}
+                  </div>
 
-              <Card className="w-full">
-                  <CardHeader>
-                      <CardTitle className="font-headline">FEN</CardTitle>
-                      <CardDescription>The Forsyth-Edwards Notation for the current position.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm font-mono bg-muted p-2 rounded-md break-all">{currentFen}</p>
-                  </CardContent>
-              </Card>
+                  <Card className="w-full max-w-2xl">
+                      <CardHeader className="flex flex-row items-center justify-between py-3">
+                          <div>
+                              <CardTitle className="font-headline text-2xl">Piece Box</CardTitle>
+                              <CardDescription>Drag pieces to the board.</CardDescription>
+                          </div>
+                          <Button variant="outline" size="icon" onClick={handleClearBoard} aria-label="Clear Board">
+                              <Trash2 className="h-5 w-5"/>
+                          </Button>
+                      </CardHeader>
+                      <CardContent className="grid grid-cols-6 gap-2 p-4">
+                          {pieceSet.map(p => <PieceBin key={p} piece={p} />)}
+                      </CardContent>
+                  </Card>
+              </div>
 
-          </div>
+            </main>
+          </SidebarInset>
+
+          <Sidebar side="right" collapsible="icon">
+              <SidebarContent>
+                  <HistoryPanel
+                      fen={currentFen}
+                      insights={state.insights}
+                      isPending={isPending || isAnalyzing}
+                      squareDetails={getSquareDetails()}
+                      selectedSquare={selectedSquare}
+                      orientation={orientation}
+                  />
+              </SidebarContent>
+          </Sidebar>
         </div>
-      </main>
+      </SidebarProvider>
     </DndProvider>
   );
 }

@@ -1,5 +1,4 @@
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { SquareDetails } from '@/lib/chess-logic';
 import type { SelectedSquare } from './chess-heat-client';
 
@@ -15,7 +14,7 @@ function PieceList({ title, pieces }: { title: string, pieces: { piece: string, 
   
   return (
     <div>
-      <h4 className="font-semibold text-sm text-foreground">{title}</h4>
+      <h4 className="font-semibold text-sm text-sidebar-foreground">{title}</h4>
       <ul className="text-sm list-disc pl-5 mt-1 space-y-1 text-muted-foreground">
         {pieces.map(({ piece, from }, index) => {
           const color = piece[0] === 'w' ? 'White' : 'Black';
@@ -42,14 +41,11 @@ export function SquareDetailsDisplay({ details, orientation, selectedSquare }: {
   const squareName = getSquareName(selectedSquare, orientation).toUpperCase();
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <CardTitle className="font-headline">Square Details{squareName && `: ${squareName}`}</CardTitle>
-        <CardDescription>
+    <div className="w-full">
+        <h3 className="font-headline text-lg font-semibold text-sidebar-foreground mb-2">Square Details{squareName && `: ${squareName}`}</h3>
+        <div className="text-sm text-muted-foreground mb-4">
             {details ? 'Attackers and defenders for the selected square.' : 'Click on a square on the board to see its tactical details.'}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
+        </div>
         {details ? (
           <div className="space-y-4">
             <PieceList title="Attackers" pieces={details.attackers} />
@@ -63,7 +59,6 @@ export function SquareDetailsDisplay({ details, orientation, selectedSquare }: {
                 <p>No square selected</p>
             </div>
         )}
-      </CardContent>
-    </Card>
+    </div>
   );
 }

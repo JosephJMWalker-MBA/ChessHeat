@@ -101,18 +101,9 @@ function getAttackedSquares(piece: Piece, r: number, c: number, board: Board): {
     switch (type) {
         case 'P':
             const forward = color === 'w' ? -1 : 1;
-            // Pawns attack diagonally.
+            // Pawns attack diagonally forward.
             if (is_valid(r + forward, c - 1)) moves.push({r: r + forward, c: c - 1});
             if (is_valid(r + forward, c + 1)) moves.push({r: r + forward, c: c + 1});
-            // Pawns also control the square directly in front of them
-            if (is_valid(r + forward, c) && !board[r + forward][c]) {
-                moves.push({r: r + forward, c: c});
-                // And the second square if it's their first move and both are clear
-                const startRank = color === 'w' ? 6 : 1;
-                if (r === startRank && is_valid(r + 2 * forward, c) && !board[r + 2 * forward][c]) {
-                    moves.push({ r: r + 2 * forward, c: c });
-                }
-            }
             break;
         case 'N':
             const knight_moves = [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]];
