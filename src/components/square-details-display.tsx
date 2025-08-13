@@ -20,6 +20,7 @@ function PieceList({ title, pieces }: { title: string, pieces: { piece: string, 
         {pieces.map(({ piece, from }, index) => {
           const color = piece[0] === 'w' ? 'White' : 'Black';
           const type = PIECE_NAMES[piece[1]] || 'Piece';
+          // 'from' coordinates are always canonical (white-oriented)
           const fromSquare = `${files[from.c]}${ranks[from.r]}`;
           return <li key={index}>{color} {type} (from {fromSquare})</li>;
         })}
@@ -28,6 +29,7 @@ function PieceList({ title, pieces }: { title: string, pieces: { piece: string, 
   );
 }
 
+// Gets the algebraic notation for a square based on the current view (orientation)
 function getSquareName(square: SelectedSquare, orientation: 'w' | 'b'): string {
     if (!square) return '';
     const files = orientation === 'w' ? ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] : ['h', 'g', 'f', 'e', 'd', 'c', 'b', 'a'];

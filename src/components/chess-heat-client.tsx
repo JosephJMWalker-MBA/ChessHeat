@@ -42,14 +42,13 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
     
     const {r, c} = selectedSquare;
 
-    if (orientation === 'w') {
-      return state.influenceData.detailedInfluence[r][c];
-    }
+    // The selectedSquare coords are relative to the current view.
+    // We need to map them back to the canonical board state (white's orientation)
+    // before fetching the details.
+    const canonicalR = orientation === 'w' ? r : 7 - r;
+    const canonicalC = orientation === 'w' ? c : 7 - c;
     
-    // Adjust for black's orientation
-    const reversedR = 7 - r;
-    const reversedC = 7 - c;
-    return state.influenceData.detailedInfluence[reversedR][reversedC];
+    return state.influenceData.detailedInfluence[canonicalR][canonicalC];
   }
 
   const handleSquareSelect = (r: number, c: number) => {
