@@ -57,8 +57,8 @@ function getAttackedSquares(piece: Piece, r: number, c: number, board: Board): {
         while (is_valid(cr, cc)) {
             moves.push({r: cr, c: cc});
             const targetPiece = board[cr][cc];
-            // Stop if the square is occupied by an enemy piece. The influence stops here.
-            if (targetPiece && targetPiece[0] !== color) {
+            // Stop if the square is occupied by any piece. The influence stops here.
+            if (targetPiece) {
                 break;
             }
             cr += dr;
