@@ -17,12 +17,45 @@ export interface ChessHeatState {
 
 const fenSchema = z.string().refine(
   (fen) => {
-    // A basic FEN validation regex
-    const parts = fen.split(' ');
-    if (parts.length < 1) return false;
-    const ranks = parts[0].split('/');
+    const parts = fen.trim().split(/\s+/);
+    if (parts.length !== 6) return false;
+
+    const [piecePlacement, activeColor, castling, enPassant, halfMove, fullMove] = parts;
+
+    // 1. Piece Placement
+    const ranks = piecePlacement.split('/');
     if (ranks.length !== 8) return false;
-    return ranks.every(rank => /^[1-8prnbqkPRNBQK]{1,8}$/.test(rank.replace(/[1-8]/g, m => '1'.repeat(parseInt(m, 10)))));
+    for (const rank of ranks) {
+      let count = 0;
+      for (const char of rank) {
+        if (/[1-8]/.test(char)) {
+          count += parseInt(char, 10);
+        } else if (/[prnbqkPRNBQK]/.test(char)) {
+          count++;
+        } else {
+          return false; // Invalid character
+        }
+      }
+      if (count !== 8) return false; // Each rank must sum to 8
+    }
+
+    // 2. Active Color
+    if (!/^[wb]$/.test(activeColor)) return false;
+
+    // 3. Castling Availability
+    if (!/^(-|K?Q?k?q?)$/.test(castling)) return false;
+
+    // 4. En Passant Target Square
+    if (!/^(-|[a-h][36])$/.test(enPassant)) return false;
+
+    // 5. Halfmove Clock
+    if (!/^\d+$/.test(halfMove) || parseInt(halfMove, 10) < 0) return false;
+    
+    // 6. Fullmove Number
+    if (!/^\d+$/.test(fullMove) || parseInt(fullMove, 10) <= 0) return false;
+
+
+    return true;
   },
   {
     message: "Invalid FEN string format.",
@@ -40,10 +73,10 @@ export async function getChessHeatmap(
     return { ...currentState, error: 'Please provide a FEN string.' };
   }
   
-  const validation = fenSchema.safeParse(fenInput.split(' ')[0]);
+  const validation = fenSchema.safeParse(fenInput);
 
   if (!validation.success) {
-      return { ...currentState, error: 'Invalid FEN string. Please check the format.' };
+      return { ...currentState, error: 'Invalid FEN string. Please check the format and ensure all 6 fields are present.' };
   }
 
   try {
