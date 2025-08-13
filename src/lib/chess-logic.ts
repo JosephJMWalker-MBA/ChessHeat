@@ -17,7 +17,7 @@ export interface InfluenceData {
 
 
 const PIECE_VALUES: { [key: string]: number } = {
-  p: 1, n: 3, b: 3, r: 5, q: 9, k: 0,
+  p: 1, n: 3, b: 3, r: 5, q: 9, k: 10,
 };
 
 // Parses the piece placement part of a FEN string.
