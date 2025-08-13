@@ -18,7 +18,7 @@ export interface ChessHeatState {
 const fenSchema = z.string().refine(
   (fen) => {
     const parts = fen.trim().split(/\s+/);
-    if (parts.length !== 6) return false;
+    if (parts.length < 1) return false; // Must have at least piece placement
 
     const [piecePlacement, activeColor, castling, enPassant, halfMove, fullMove] = parts;
 
@@ -39,20 +39,21 @@ const fenSchema = z.string().refine(
       if (count !== 8) return false; // Each rank must sum to 8
     }
 
+    // These fields are optional for our use case, but if they exist, they should be valid.
     // 2. Active Color
-    if (!/^[wb]$/.test(activeColor)) return false;
+    if (activeColor && !/^[wb]$/.test(activeColor)) return false;
 
     // 3. Castling Availability
-    if (!/^(-|K?Q?k?q?)$/.test(castling)) return false;
+    if (castling && !/^(-|K?Q?k?q?)$/.test(castling)) return false;
 
     // 4. En Passant Target Square
-    if (!/^(-|[a-h][36])$/.test(enPassant)) return false;
+    if (enPassant && !/^(-|[a-h][36])$/.test(enPassant)) return false;
 
     // 5. Halfmove Clock
-    if (!/^\d+$/.test(halfMove) || parseInt(halfMove, 10) < 0) return false;
+    if (halfMove && (!/^\d+$/.test(halfMove) || parseInt(halfMove, 10) < 0)) return false;
     
     // 6. Fullmove Number
-    if (!/^\d+$/.test(fullMove) || parseInt(fullMove, 10) <= 0) return false;
+    if (fullMove && (!/^\d+$/.test(fullMove) || parseInt(fullMove, 10) <= 0)) return false;
 
 
     return true;
@@ -106,6 +107,6 @@ export async function getChessHeatmap(
   } catch (e) {
     console.error(e);
     const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred.';
-    return { ...currentState, error: `Error processing FEN: ${errorMessage}` };
+    return { ...currentState, key: Math.random(), error: `Error processing FEN: ${errorMessage}` };
   }
 }

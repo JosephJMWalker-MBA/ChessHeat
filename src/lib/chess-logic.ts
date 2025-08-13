@@ -15,7 +15,6 @@ export interface InfluenceData {
     detailedInfluence: DetailedInfluenceMatrix;
 }
 
-
 const PIECE_VALUES: { [key: string]: number } = {
   p: 1, n: 3, b: 3, r: 5, q: 9, k: 10,
 };
@@ -32,7 +31,7 @@ export function parseFEN(fen: string): Board {
     let fileIndex = 0;
     for (const char of ranks[r]) {
       if (fileIndex > 8) {
-        break; // Should be caught by the fileIndex !== 8 check later
+        break;
       }
       if (isNaN(parseInt(char))) {
         const color = char === char.toUpperCase() ? 'w' : 'b';
@@ -49,6 +48,35 @@ export function parseFEN(fen: string): Board {
   return board;
 }
 
+// Builds a FEN string from a board state.
+export function buildFen(board: Board, activeColor: string, castling: string, enPassant: string, halfMove: number, fullMove: number): string {
+    let fen = '';
+    for (let r = 0; r < 8; r++) {
+        let empty = 0;
+        for (let c = 0; c < 8; c++) {
+            const piece = board[r][c];
+            if (piece) {
+                if (empty > 0) {
+                    fen += empty;
+                    empty = 0;
+                }
+                const color = piece[0];
+                const type = piece[1];
+                fen += color === 'w' ? type.toUpperCase() : type.toLowerCase();
+            } else {
+                empty++;
+            }
+        }
+        if (empty > 0) {
+            fen += empty;
+        }
+        if (r < 7) {
+            fen += '/';
+        }
+    }
+    return `${fen} ${activeColor} ${castling} ${enPassant} ${halfMove} ${fullMove}`;
+}
+
 
 function getAttackedSquares(piece: Piece, r: number, c: number, board: Board): {r: number, c: number}[] {
     const moves: {r: number, c: number}[] = [];
@@ -62,7 +90,6 @@ function getAttackedSquares(piece: Piece, r: number, c: number, board: Board): {
         while (is_valid(cr, cc)) {
             moves.push({r: cr, c: cc});
             const targetPiece = board[cr][cc];
-            // Stop if the square is occupied by any piece. The influence stops here.
             if (targetPiece) {
                 break;
             }
@@ -74,9 +101,18 @@ function getAttackedSquares(piece: Piece, r: number, c: number, board: Board): {
     switch (type) {
         case 'P':
             const forward = color === 'w' ? -1 : 1;
-            // Pawns only attack diagonally.
+            // Pawns attack diagonally.
             if (is_valid(r + forward, c - 1)) moves.push({r: r + forward, c: c - 1});
             if (is_valid(r + forward, c + 1)) moves.push({r: r + forward, c: c + 1});
+            // Pawns also control the square directly in front of them
+            if (is_valid(r + forward, c) && !board[r + forward][c]) {
+                moves.push({r: r + forward, c: c});
+                // And the second square if it's their first move and both are clear
+                const startRank = color === 'w' ? 6 : 1;
+                if (r === startRank && is_valid(r + 2 * forward, c) && !board[r + 2 * forward][c]) {
+                    moves.push({ r: r + 2 * forward, c: c });
+                }
+            }
             break;
         case 'N':
             const knight_moves = [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]];
