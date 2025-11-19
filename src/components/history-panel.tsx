@@ -9,7 +9,6 @@ import type { SquareDetails } from '@/lib/chess-logic';
 import type { SelectedSquare } from './chess-heat-client';
 
 interface HistoryPanelProps {
-    fen: string;
     insights: string;
     isPending: boolean;
     squareDetails: SquareDetails | null;
@@ -17,7 +16,7 @@ interface HistoryPanelProps {
     orientation: 'w' | 'b';
 }
 
-export function HistoryPanel({ fen, insights, isPending, squareDetails, selectedSquare, orientation }: HistoryPanelProps) {
+export function HistoryPanel({ insights, isPending, squareDetails, selectedSquare, orientation }: HistoryPanelProps) {
   return (
     <div className="flex flex-col gap-4 p-4 h-full">
         <div className="flex-shrink-0">
@@ -45,13 +44,6 @@ export function HistoryPanel({ fen, insights, isPending, squareDetails, selected
             <section>
                 <SquareDetailsDisplay details={squareDetails} orientation={orientation} selectedSquare={selectedSquare} />
             </section>
-        </div>
-        
-        <div className="flex-shrink-0">
-            <Separator className="bg-sidebar-border mb-4" />
-            <h3 className="font-headline text-lg font-semibold text-sidebar-foreground mb-2">FEN</h3>
-            <p className="text-sm text-muted-foreground">The Forsyth-Edwards Notation for the current position.</p>
-            <p className="text-xs font-mono bg-muted p-2 rounded-md break-all mt-2">{fen}</p>
         </div>
     </div>
   );

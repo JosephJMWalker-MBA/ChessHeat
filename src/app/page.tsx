@@ -13,7 +13,6 @@ export default async function Home() {
     board,
     influenceData,
     insights: 'Drag pieces onto the board to set up a position. The heatmap and AI analysis will update automatically.',
-    fen: STARTING_FEN,
     key: Date.now(),
   };
 

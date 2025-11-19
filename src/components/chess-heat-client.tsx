@@ -30,7 +30,6 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
   const [isAnalyzing, startTransition] = useTransition();
 
   const [editorBoard, setEditorBoard] = useState<Board>(initialState.board);
-  const [currentFen, setCurrentFen] = useState(initialState.fen);
 
   useEffect(() => {
     setIsClient(true);
@@ -38,7 +37,6 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
   
   useEffect(() => {
     setEditorBoard(state.board);
-    setCurrentFen(state.fen);
   }, [state.key]); 
 
 
@@ -84,8 +82,9 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
     newBoard[toR][toC] = piece;
     setEditorBoard(newBoard);
 
+    // We generate a "temporary" FEN string to pass the board state to the server action.
+    // This is a transitional step.
     const newFen = buildFen(newBoard, 'w', '-', '-', 0, 1);
-    setCurrentFen(newFen);
 
     startTransition(() => {
       const formData = new FormData();
@@ -98,7 +97,6 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
     const newBoard = Array(8).fill(null).map(() => Array(8).fill(null));
     setEditorBoard(newBoard);
     const newFen = '8/8/8/8/8/8/8/8 w - - 0 1';
-    setCurrentFen(newFen);
     startTransition(() => {
         const formData = new FormData();
         formData.append('fen', newFen);
@@ -168,7 +166,6 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
           <Sidebar side="right" collapsible="icon">
               <SidebarContent>
                   <HistoryPanel
-                      fen={currentFen}
                       insights={state.insights}
                       isPending={isPending || isAnalyzing}
                       squareDetails={getSquareDetails()}
