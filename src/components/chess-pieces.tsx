@@ -65,15 +65,43 @@ const Pawn = ({ color }: { color: 'w' | 'b' }) => (
   </svg>
 );
 
+const Wall = () => (
+    <svg viewBox="0 0 45 45" className="p-1">
+        <path d="M5 5 H 40 V 40 H 5 Z" fill="hsl(30 20% 30%)" stroke="hsl(30 20% 10%)" strokeWidth="1.5" />
+        <path d="M5 16.25 H 40 M5 27.5 H 40 M16.25 5 V 16.25 M27.5 5 V 16.25 M10.625 16.25 V 27.5 M21.875 16.25 V 27.5 M33.125 16.25 V 27.5 M16.25 27.5 V 40 M27.5 27.5 V 40" 
+            fill="none" stroke="hsl(30 20% 15%)" strokeWidth="1" />
+    </svg>
+);
+
+const Threat = () => (
+    <svg viewBox="0 0 45 45" stroke="hsl(var(--destructive))" fill="none" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="drop-shadow-md">
+       <path d="M22.5 6 L22.5 12" />
+       <path d="M33.4 11.6 L28.9 15.1" />
+       <path d="M39 22.5 L33 22.5" />
+       <path d="M33.4 33.4 L28.9 29.9" />
+       <path d="M22.5 39 L22.5 33" />
+       <path d="M11.6 33.4 L15.1 29.9" />
+       <path d="M6 22.5 L12 22.5" />
+       <path d="M11.6 11.6 L15.1 15.1" />
+    </svg>
+);
+
+
 const PIECE_MAP: { [key: string]: (props: { color: 'w' | 'b' }) => JSX.Element } = {
-  K: King, Q: Queen, R: Rook, B: Bishop, N: Knight, P: Pawn
+  K: King, Q: Queen, R: Rook, B: Bishop, N: Knight, P: Pawn, X: Wall, T: Threat
 };
 
 export function Piece({ piece }: { piece: string | null }) {
   if (!piece) return null;
   const color = piece[0] as 'w' | 'b';
-  const type = piece[1];
+  const type = piece.length > 1 ? piece[1] : piece[0]; // Handles single char pieces like X and T
   const Component = PIECE_MAP[type];
   if (!Component) return null;
+
+  // Wall and Threat are colorless
+  if (type === 'X' || type === 'T') {
+      return <div className="w-full h-full relative z-10 pointer-events-none p-1"><Component color="w" /></div>;
+  }
+  
   return <div className="w-full h-full relative z-10 pointer-events-none p-1"><Component color={color} /></div>;
 }

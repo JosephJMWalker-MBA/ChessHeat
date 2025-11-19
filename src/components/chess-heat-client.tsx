@@ -19,7 +19,7 @@ import { Sidebar, SidebarContent, SidebarInset, SidebarProvider, SidebarTrigger 
 
 export type SelectedSquare = { r: number; c: number } | null;
 
-const pieceSet: PieceType[] = ['wK', 'wQ', 'wR', 'wB', 'wN', 'wP', 'bK', 'bQ', 'bR', 'bB', 'bN', 'bP'];
+const pieceSet: PieceType[] = ['wK', 'wQ', 'wR', 'wB', 'wN', 'wP', 'bK', 'bQ', 'bR', 'bB', 'bN', 'bP', 'X', 'T'];
 
 export function ChessHeatClient({ initialState }: { initialState: ChessHeatState }) {
   const { toast } = useToast();
@@ -156,7 +156,7 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
                               <Trash2 className="h-5 w-5"/>
                           </Button>
                       </CardHeader>
-                      <CardContent className="grid grid-cols-6 gap-2 p-4">
+                      <CardContent className="grid grid-cols-7 gap-2 p-4">
                           {pieceSet.map(p => <PieceBin key={p} piece={p} />)}
                       </CardContent>
                   </Card>

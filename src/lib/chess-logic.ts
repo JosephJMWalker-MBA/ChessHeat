@@ -1,5 +1,5 @@
 
-export type Piece = string; // e.g., 'wP', 'bN'
+export type Piece = string; // e.g., 'wP', 'bN', 'X' (Wall), 'T' (Threat)
 export type Board = (Piece | null)[][];
 export type InfluenceMatrix = number[][];
 
@@ -34,8 +34,13 @@ export function parseFEN(fen: string): Board {
         break;
       }
       if (isNaN(parseInt(char))) {
-        const color = char === char.toUpperCase() ? 'w' : 'b';
-        board[r][fileIndex] = `${color}${char.toUpperCase()}`;
+        const isSpecial = char.toUpperCase() === 'X' || char.toUpperCase() === 'T';
+        if (isSpecial) {
+             board[r][fileIndex] = char.toUpperCase();
+        } else {
+             const color = char === char.toUpperCase() ? 'w' : 'b';
+             board[r][fileIndex] = `${color}${char.toUpperCase()}`;
+        }
         fileIndex++;
       } else {
         fileIndex += parseInt(char);
@@ -60,9 +65,13 @@ export function buildFen(board: Board, activeColor: string, castling: string, en
                     fen += empty;
                     empty = 0;
                 }
-                const color = piece[0];
-                const type = piece[1];
-                fen += color === 'w' ? type.toUpperCase() : type.toLowerCase();
+                if (piece === 'X' || piece === 'T') {
+                    fen += piece;
+                } else {
+                    const color = piece[0];
+                    const type = piece[1];
+                    fen += color === 'w' ? type.toUpperCase() : type.toLowerCase();
+                }
             } else {
                 empty++;
             }
@@ -80,6 +89,12 @@ export function buildFen(board: Board, activeColor: string, castling: string, en
 
 function getAttackedSquares(piece: Piece, r: number, c: number, board: Board): {r: number, c: number}[] {
     const moves: {r: number, c: number}[] = [];
+    
+    // Barrier pieces do not attack
+    if (piece === 'X' || piece === 'T') {
+        return [];
+    }
+
     const color = piece[0];
     const type = piece[1];
 
@@ -88,8 +103,10 @@ function getAttackedSquares(piece: Piece, r: number, c: number, board: Board): {
     const add_line_moves = (dr: number, dc: number) => {
         let cr = r + dr, cc = c + dc;
         while (is_valid(cr, cc)) {
-            moves.push({r: cr, c: cc});
             const targetPiece = board[cr][cc];
+            // Can move to the square (it's empty or has a piece)
+            moves.push({r: cr, c: cc});
+            // Stop if the square is occupied by any piece (friendly, enemy, or barrier)
             if (targetPiece) {
                 break;
             }
@@ -140,7 +157,7 @@ export function calculateInfluence(board: Board): InfluenceData {
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
       const piece = board[r][c];
-      if (!piece) continue;
+      if (!piece || piece === 'X' || piece === 'T') continue;
 
       const pieceColor = piece[0];
       const pieceType = piece[1].toLowerCase();
@@ -152,10 +169,10 @@ export function calculateInfluence(board: Board): InfluenceData {
         netInfluence[ar][ac] += pieceValue;
         
         const targetPiece = board[ar][ac];
-        if (targetPiece && targetPiece[0] === pieceColor) {
+        if (targetPiece && targetPiece !== 'X' && targetPiece !== 'T' && targetPiece[0] === pieceColor) {
              detailedInfluence[ar][ac].defenders.push({ piece, from: {r,c} });
         } else {
-             // If the target square is empty or has an enemy piece, it's an attack.
+             // If the target square is empty, has an enemy piece, or is a barrier, it's an attack.
              detailedInfluence[ar][ac].attackers.push({ piece, from: {r,c} });
         }
       }
