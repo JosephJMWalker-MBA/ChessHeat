@@ -1,8 +1,8 @@
 # ChessHeat
 
-This Next.js application, created with Firebase Studio, is an interactive chessboard editor and influence visualizer.
+This Next.js application, created with Firebase Studio, is an interactive chessboard editor and influence visualizer. It has evolved beyond a standard chess tool into a "Chess Arena" sandbox.
 
-Drag and drop pieces onto the board to set up any position. The application provides a real-time heatmap showing the balance of power on every square. It also uses generative AI to provide tactical insights about the current position.
+Freely drag and drop pieces—including multiple kings, walls, and threat markers—onto the board to set up any tactical scenario imaginable. The application provides a real-time heatmap showing the balance of power on every square and uses generative AI to provide tactical insights about the current position. This tool is perfect for studying complex, non-standard chess scenarios and exploring the principles of piece influence without the constraints of traditional rules.
 
 ## Getting Started
 

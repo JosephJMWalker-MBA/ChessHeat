@@ -13,7 +13,6 @@ import type { SquareDetails, Board, Piece as PieceType } from '@/lib/chess-logic
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { PieceBin } from './piece-bin';
-import { buildFen } from '@/lib/chess-logic';
 import { HistoryPanel } from './history-panel';
 import { Sidebar, SidebarContent, SidebarInset, SidebarProvider, SidebarTrigger } from './ui/sidebar';
 
@@ -75,6 +74,8 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
   const handlePieceDrop = (piece: PieceType, toR: number, toC: number, from: {r: number, c: number} | null) => {
     const newBoard = editorBoard.map(row => [...row]);
     
+    // If the piece is from the board, clear its original square.
+    // If 'from' is null, it's a new piece from the bin, so we don't clear.
     if (from) {
       newBoard[from.r][from.c] = null;
     }
@@ -82,13 +83,10 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
     newBoard[toR][toC] = piece;
     setEditorBoard(newBoard);
 
-    // We generate a "temporary" FEN string to pass the board state to the server action.
-    // This is a transitional step.
-    const newFen = buildFen(newBoard, 'w', '-', '-', 0, 1);
-
     startTransition(() => {
       const formData = new FormData();
-      formData.append('fen', newFen);
+      // We pass the board state directly as a stringified JSON object
+      formData.append('board', JSON.stringify(newBoard));
       formAction(formData);
     });
   };
@@ -96,10 +94,9 @@ export function ChessHeatClient({ initialState }: { initialState: ChessHeatState
   const handleClearBoard = () => {
     const newBoard = Array(8).fill(null).map(() => Array(8).fill(null));
     setEditorBoard(newBoard);
-    const newFen = '8/8/8/8/8/8/8/8 w - - 0 1';
     startTransition(() => {
         const formData = new FormData();
-        formData.append('fen', newFen);
+        formData.append('board', JSON.stringify(newBoard));
         formAction(formData);
     });
   }
