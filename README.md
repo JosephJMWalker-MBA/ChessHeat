@@ -1,8 +1,8 @@
 # ChessHeat
 
-This Next.js application, created with Firebase Studio, provides a heatmap visualization of square control on a chessboard.
+This Next.js application, created with Firebase Studio, is an interactive chessboard editor and influence visualizer.
 
-Enter a FEN string to see which side, White or Black, has more influence over each square. The app also uses AI to generate insights on key tactical areas.
+Drag and drop pieces onto the board to set up any position. The application provides a real-time heatmap showing the balance of power on every square. It also uses generative AI to provide tactical insights about the current position.
 
 ## Getting Started
 
