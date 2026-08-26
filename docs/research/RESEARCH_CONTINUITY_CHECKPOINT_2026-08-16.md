@@ -909,3 +909,9 @@ Implemented cp_target_labels.py, run_cp_target_label_derivation.py, and tests.
 TARGET evidence V2: AUDITED PASS. Label semantics: FROZEN BY V7.
 Real label derivation: NOT RUN / UNAUTHORIZED. Model training: UNAUTHORIZED.
 Next blocker: INDEPENDENT_TARGET_LABEL_DERIVATION_IMPLEMENTATION_REAUDIT_REQUIRED.
+
+## 2026-08-26 TARGET Label Derivation Implementation V2
+Repaired V1 implementation failures relating to ExperimentResult schemas, strict count gates, determinism, and SHA verification. 
+Real July label derivation remains NOT RUN / UNAUTHORIZED.
+Status: TARGET_LABEL_DERIVATION_V2_IMPLEMENTED_REAUDIT_REQUIRED.
+Next blocker: INDEPENDENT_TARGET_LABEL_DERIVATION_IMPLEMENTATION_REAUDIT_V2_REQUIRED.

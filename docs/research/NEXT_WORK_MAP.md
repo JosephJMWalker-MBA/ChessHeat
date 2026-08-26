@@ -718,3 +718,25 @@ TARGET_LABEL_DERIVATION_V1_IMPLEMENTED_REAUDIT_REQUIRED
 
 Next blocker:
 INDEPENDENT_TARGET_LABEL_DERIVATION_IMPLEMENTATION_REAUDIT_REQUIRED
+
+## TARGET LABEL DERIVATION IMPLEMENTATION V2
+
+V1 preliminary review failed before hostile audit because:
+- real ExperimentResult schema mismatch;
+- real observation-key mismatch;
+- approved-SHA gate incomplete;
+- manifest digest identity wrong;
+- canonical runner non-executing;
+- exception-to-UNORDERED fail-open behavior;
+- source-known count gates unenforced.
+
+V2 repaired these.
+
+Real July label derivation remains:
+NOT RUN / UNAUTHORIZED.
+
+Status:
+TARGET_LABEL_DERIVATION_V2_IMPLEMENTED_REAUDIT_REQUIRED
+
+Next:
+INDEPENDENT_TARGET_LABEL_DERIVATION_IMPLEMENTATION_REAUDIT_V2_REQUIRED.
