@@ -740,3 +740,21 @@ TARGET_LABEL_DERIVATION_V2_IMPLEMENTED_REAUDIT_REQUIRED
 
 Next:
 INDEPENDENT_TARGET_LABEL_DERIVATION_IMPLEMENTATION_REAUDIT_V2_REQUIRED.
+
+## TARGET LABEL DERIVATION IMPLEMENTATION V3
+
+V2 failed pre-audit review due to String-containment vs JSON-spacing incompatibility in canonical payloads, mocked test bypassing, and incomplete execution gates.
+
+V3 repaired these issues, creating unified dict-parsed validators, strict ExperimentResult model injection, immutable expectation gates, and genuine materializer roundtrips.
+
+Status:
+TARGET_LABEL_DERIVATION_V3_IMPLEMENTED_REAUDIT_REQUIRED
+
+Next:
+INDEPENDENT_TARGET_LABEL_DERIVATION_IMPLEMENTATION_REAUDIT_V3_REQUIRED.
+
+Real July labels:
+NOT RUN / UNAUTHORIZED
+
+Model training:
+UNAUTHORIZED.

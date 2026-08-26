@@ -915,3 +915,8 @@ Repaired V1 implementation failures relating to ExperimentResult schemas, strict
 Real July label derivation remains NOT RUN / UNAUTHORIZED.
 Status: TARGET_LABEL_DERIVATION_V2_IMPLEMENTED_REAUDIT_REQUIRED.
 Next blocker: INDEPENDENT_TARGET_LABEL_DERIVATION_IMPLEMENTATION_REAUDIT_V2_REQUIRED.
+
+## 2026-08-26 TARGET Label Derivation Implementation V3
+V3 repaired V2 failures around string-matching ExperimentResult payloads and monkeypatched testing. Implemented unified `ExperimentResult(**...)` parses, canonical JSON-spacing support, immutable expectation dataclasses, and strict determinism via the real `run()` command.
+Status: TARGET_LABEL_DERIVATION_V3_IMPLEMENTED_REAUDIT_REQUIRED.
+Next blocker: INDEPENDENT_TARGET_LABEL_DERIVATION_IMPLEMENTATION_REAUDIT_V3_REQUIRED.

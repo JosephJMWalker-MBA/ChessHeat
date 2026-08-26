@@ -3,12 +3,12 @@ import os
 import sys
 import hashlib
 import subprocess
-from chessheat.cp_target_labels import TargetLabelMaterializerV2
+from chessheat.cp_target_labels import TargetLabelMaterializerV3, FROZEN_JULY_2026_LABEL_EXPECTATIONS
 
 MANIFEST_PATH = "artifacts/research/cp_source_feasibility_2026_07/cp_root_population_manifest_v2.jsonl.zst"
 SOURCE_PATH = "artifacts/research/cp_source_feasibility_2026_07/raw/cp_source_root_results_v2.jsonl"
 TARGET_PATH = "artifacts/research/cp_target_acquisition_2026_07/raw/cp_target_root_results_v2.jsonl"
-OUTPUT_PATH = "artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v2.jsonl.zst"
+OUTPUT_PATH = "artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v3.jsonl.zst"
 PROTOCOL_PATH = "artifacts/research/cp_representation_efficiency_protocol_v7.json"
 
 def hash_file(path):
@@ -20,6 +20,7 @@ def hash_file(path):
     
 def hash_manifest(path):
     import zstandard as zstd
+    import json
     sha = hashlib.sha256()
     dctx = zstd.ZstdDecompressor()
     count = 0
@@ -35,9 +36,11 @@ def hash_manifest(path):
                 buf += chunk
                 while b"\n" in buf:
                     line, buf = buf.split(b"\n", 1)
-                    count += 1
-                    if b'"ADMITTED"' in line:
-                        admitted += 1
+                    if line.strip():
+                        count += 1
+                        m_rec = json.loads(line)
+                        if m_rec.get("inclusion") == "ADMITTED":
+                            admitted += 1
     return sha.hexdigest(), count, admitted
 
 def check_approved_sha(sha_val):
@@ -62,7 +65,13 @@ def check_approved_sha(sha_val):
     if diff.returncode != 0:
         return False
         
-    diff2 = subprocess.run(["git", "diff", "--quiet", sha_val, "--"] + bound_files)
+    # Check staged changes
+    diff_staged = subprocess.run(["git", "diff", "--cached", "--quiet", "--"] + bound_files)
+    if diff_staged.returncode != 0:
+        return False
+        
+    # Check that HEAD tree matches the SHA tree for those files
+    diff2 = subprocess.run(["git", "diff", "--quiet", sha_val, "HEAD", "--"] + bound_files)
     if diff2.returncode != 0:
         return False
         
@@ -104,16 +113,17 @@ def main():
         
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
         
-    mat = TargetLabelMaterializerV2(
-        MANIFEST_PATH,
-        SOURCE_PATH,
-        TARGET_PATH,
-        OUTPUT_PATH,
-        m_raw,
-        s_raw,
-        t_raw,
-        seal_raw,
-        approved_sha
+    mat = TargetLabelMaterializerV3(
+        manifest_path=MANIFEST_PATH,
+        source_path=SOURCE_PATH,
+        target_path=TARGET_PATH,
+        output_path=OUTPUT_PATH,
+        manifest_sha=m_raw,
+        source_sha=s_raw,
+        target_sha=t_raw,
+        target_seal_sha=seal_raw,
+        approved_sha=approved_sha,
+        expectations=FROZEN_JULY_2026_LABEL_EXPECTATIONS
     )
     
     uncompressed_sha = mat.run()
