@@ -758,3 +758,5 @@ NOT RUN / UNAUTHORIZED
 
 Model training:
 UNAUTHORIZED.
+
+- [x] Repair TARGET label derivation v4

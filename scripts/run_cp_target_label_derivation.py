@@ -3,12 +3,12 @@ import os
 import sys
 import hashlib
 import subprocess
-from chessheat.cp_target_labels import TargetLabelMaterializerV3, FROZEN_JULY_2026_LABEL_EXPECTATIONS
+from chessheat.cp_target_labels import TargetLabelMaterializerV4, FROZEN_JULY_2026_LABEL_EXPECTATIONS
 
 MANIFEST_PATH = "artifacts/research/cp_source_feasibility_2026_07/cp_root_population_manifest_v2.jsonl.zst"
 SOURCE_PATH = "artifacts/research/cp_source_feasibility_2026_07/raw/cp_source_root_results_v2.jsonl"
 TARGET_PATH = "artifacts/research/cp_target_acquisition_2026_07/raw/cp_target_root_results_v2.jsonl"
-OUTPUT_PATH = "artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v3.jsonl.zst"
+OUTPUT_PATH = "artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v4.jsonl.zst"
 PROTOCOL_PATH = "artifacts/research/cp_representation_efficiency_protocol_v7.json"
 
 def hash_file(path):
@@ -41,6 +41,8 @@ def hash_manifest(path):
                         m_rec = json.loads(line)
                         if m_rec.get("inclusion") == "ADMITTED":
                             admitted += 1
+            if buf.strip():
+                raise ValueError("Unterminated final line in readback")
     return sha.hexdigest(), count, admitted
 
 def check_approved_sha(sha_val):
@@ -78,6 +80,9 @@ def check_approved_sha(sha_val):
     return True
 
 def main():
+    import zstandard as zstd
+    print(f"Using zstandard: {zstd.__version__}")
+    
     approved_sha = os.environ.get("CHESSHEAT_TARGET_LABEL_DERIVATION_APPROVED_SHA")
     if not check_approved_sha(approved_sha):
         print("ERROR: Invalid CHESSHEAT_TARGET_LABEL_DERIVATION_APPROVED_SHA.")
@@ -113,7 +118,7 @@ def main():
         
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
         
-    mat = TargetLabelMaterializerV3(
+    mat = TargetLabelMaterializerV4(
         manifest_path=MANIFEST_PATH,
         source_path=SOURCE_PATH,
         target_path=TARGET_PATH,

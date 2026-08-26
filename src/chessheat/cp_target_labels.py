@@ -34,14 +34,16 @@ def get_target_pair_id(root_identity: str, m1_uci: str, m2_uci: str) -> str:
 def _validate_failure_record(record: dict):
     if "experiment_result" in record:
         raise ValueError("FAILURE containing experiment_result")
-    if "error_type" not in record or "error_message" not in record:
-        raise ValueError("FAILURE missing error fields")
+    if type(record.get("error_type")) is not str or not record.get("error_type"):
+        raise ValueError("FAILURE missing error_type")
+    if type(record.get("error_message")) is not str or not record.get("error_message"):
+        raise ValueError("FAILURE missing error_message")
 
 def _validate_source_success(data: dict, expected_perspective: str) -> list:
     if data.get("instrument_role") != "SOURCE":
-        raise ValueError("wrong instrument role")
+        raise ValueError("wrong SOURCE role")
     if data.get("instrument_id") != "CP_SOURCE_SF18_50K_ISOLATED_V1":
-        raise ValueError("wrong instrument ID")
+        raise ValueError("wrong SOURCE instrument")
     if data.get("producer_uci_name") != "Stockfish 18":
         raise ValueError("wrong producer")
     if data.get("pre_spawn_sha256") != "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374":
@@ -52,14 +54,22 @@ def _validate_source_success(data: dict, expected_perspective: str) -> list:
         raise ValueError("wrong comparison perspective")
         
     canonical_order = data.get("canonical_acquisition_order")
-    if canonical_order is None or len(canonical_order) != len(set(canonical_order)):
-        raise ValueError("missing canonical_acquisition_order or duplicate canonical UCI")
+    if type(canonical_order) is not list or not canonical_order:
+        raise ValueError("canonical order missing or wrong type")
+    if any(type(x) is not str or not x for x in canonical_order):
+        raise ValueError("canonical order wrong type")
+    if len(canonical_order) != len(set(canonical_order)):
+        raise ValueError("duplicate canonical UCI")
+    if canonical_order != sorted(canonical_order):
+        raise ValueError("nonlexical canonical order")
         
     obs = data.get("observations", [])
-    if len(obs) != len(canonical_order):
+    if type(obs) is not list or len(obs) != len(canonical_order):
         raise ValueError("wrong observation count")
         
     for i, o in enumerate(obs):
+        if type(o) is not dict:
+            raise ValueError("malformed observation")
         if o.get("canonical_acquisition_index") != i:
             raise ValueError("wrong canonical index")
         if o.get("isolation_sequence_index") != i:
@@ -69,7 +79,7 @@ def _validate_source_success(data: dict, expected_perspective: str) -> list:
         if o.get("requested_nodes") != 50000:
             raise ValueError("wrong SOURCE requested_nodes")
         if o.get("score_type") not in ("cp", "mate"):
-            raise ValueError("invalid score_type")
+            raise ValueError("invalid score type")
         if type(o.get("score_value")) is not int or type(o.get("score_value")) is bool:
             raise ValueError("noninteger score_value")
         if o.get("perspective") != expected_perspective:
@@ -77,11 +87,11 @@ def _validate_source_success(data: dict, expected_perspective: str) -> list:
             
     return canonical_order
 
-def _validate_target_success(data: dict, expected_perspective: str, expected_order: list):
+def _validate_target_success(data: dict, expected_perspective: str) -> list:
     if data.get("instrument_role") != "TARGET":
-        raise ValueError("wrong instrument role")
+        raise ValueError("wrong TARGET role")
     if data.get("instrument_id") != "CP_TARGET_SF18_250K_ISOLATED_V1":
-        raise ValueError("wrong instrument ID")
+        raise ValueError("wrong TARGET instrument")
     if data.get("producer_uci_name") != "Stockfish 18":
         raise ValueError("wrong producer")
     if data.get("pre_spawn_sha256") != "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374":
@@ -92,14 +102,22 @@ def _validate_target_success(data: dict, expected_perspective: str, expected_ord
         raise ValueError("wrong comparison perspective")
         
     canonical_order = data.get("canonical_acquisition_order")
-    if canonical_order != expected_order:
-        raise ValueError("SOURCE/TARGET legal universe mismatch")
+    if type(canonical_order) is not list or not canonical_order:
+        raise ValueError("canonical order missing or wrong type")
+    if any(type(x) is not str or not x for x in canonical_order):
+        raise ValueError("canonical order wrong type")
+    if len(canonical_order) != len(set(canonical_order)):
+        raise ValueError("duplicate canonical UCI")
+    if canonical_order != sorted(canonical_order):
+        raise ValueError("nonlexical canonical order")
         
     obs = data.get("observations", [])
-    if len(obs) != len(canonical_order):
+    if type(obs) is not list or len(obs) != len(canonical_order):
         raise ValueError("wrong observation count")
         
     for i, o in enumerate(obs):
+        if type(o) is not dict:
+            raise ValueError("malformed observation")
         if o.get("canonical_acquisition_index") != i:
             raise ValueError("wrong canonical index")
         if o.get("isolation_sequence_index") != i:
@@ -109,13 +127,15 @@ def _validate_target_success(data: dict, expected_perspective: str, expected_ord
         if o.get("requested_nodes") != 250000:
             raise ValueError("wrong TARGET requested_nodes")
         if o.get("score_type") not in ("cp", "mate"):
-            raise ValueError("invalid score_type")
+            raise ValueError("invalid score type")
         if type(o.get("score_value")) is not int or type(o.get("score_value")) is bool:
             raise ValueError("noninteger score_value")
         if o.get("perspective") != expected_perspective:
             raise ValueError("wrong observation perspective")
             
-def derive_root_pair_labels_v3(
+    return canonical_order
+            
+def derive_root_pair_labels_v4(
     manifest_record: Dict[str, Any],
     source_record: Dict[str, Any],
     target_record: Dict[str, Any],
@@ -127,14 +147,16 @@ def derive_root_pair_labels_v3(
 ) -> Dict[str, Any]:
     
     if source_record.get("schema") != "CP_SOURCE_FEASIBILITY_RESULT_V2":
-        raise ValueError("wrong outer schema")
+        raise ValueError("wrong SOURCE outer schema")
     if target_record.get("schema") != "CP_TARGET_ACQUISITION_RESULT_V2":
-        raise ValueError("wrong outer schema")
+        raise ValueError("wrong TARGET outer schema")
         
     s_status = source_record.get("status")
     t_status = target_record.get("status")
-    if s_status not in ("SUCCESS", "FAILURE") or t_status not in ("SUCCESS", "FAILURE"):
-        raise ValueError("invalid outer status")
+    if s_status not in ("SUCCESS", "FAILURE"):
+        raise ValueError("invalid SOURCE status")
+    if t_status not in ("SUCCESS", "FAILURE"):
+        raise ValueError("invalid TARGET status")
         
     root_id = manifest_record["root_identity"]
     root_digest = manifest_record["root_record_digest"]
@@ -147,9 +169,37 @@ def derive_root_pair_labels_v3(
     persp = "white" if manifest_record["sufficient_position"]["side_to_move"] == "w" else "black"
     partition = get_partition(manifest_record["sufficient_position"])
     
+    s_order = None
+    if s_status == "SUCCESS":
+        if "experiment_result" not in source_record:
+            raise ValueError("SUCCESS missing ExperimentResult")
+        s_er = ExperimentResult(**source_record["experiment_result"])
+        s_data = s_er.data
+        if "spec_digest" not in s_data or s_data["spec_digest"] != s_er.spec_digest:
+            raise ValueError("wrong inner spec_digest")
+        s_order = _validate_source_success(s_data, persp)
+    else:
+        _validate_failure_record(source_record)
+        
+    target_valid = False
+    if t_status == "SUCCESS":
+        if "experiment_result" not in target_record:
+            raise ValueError("SUCCESS missing ExperimentResult")
+        t_er = ExperimentResult(**target_record["experiment_result"])
+        t_data = t_er.data
+        if "spec_digest" not in t_data or t_data["spec_digest"] != t_er.spec_digest:
+            raise ValueError("wrong inner spec_digest")
+        t_order = _validate_target_success(t_data, persp)
+        if s_order is not None and t_order != s_order:
+            raise ValueError("SOURCE/TARGET legal-universe mismatch")
+        t_obs_map = {obs["root_move_uci"]: obs for obs in t_data["observations"]}
+        target_valid = True
+    else:
+        _validate_failure_record(target_record)
+    
     out = {
-        "schema": "CP_TARGET_PAIR_LABEL_ROOT_V3",
-        "label_derivation_protocol": "CP_TARGET_LABEL_DERIVATION_V3",
+        "schema": "CP_TARGET_PAIR_LABEL_ROOT_V4",
+        "label_derivation_protocol": "CP_TARGET_LABEL_DERIVATION_V4",
         "label_derivation_software_revision": approved_sha,
         "protocol_id": "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7",
         "protocol_json_sha256": "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef",
@@ -170,21 +220,10 @@ def derive_root_pair_labels_v3(
         "target_non_evaluable_pair_count": 0,
         "pairs": []
     }
-    
+        
     if s_status == "FAILURE":
-        _validate_failure_record(source_record)
         return out
         
-    if "experiment_result" not in source_record:
-        raise ValueError("SUCCESS missing ExperimentResult")
-        
-    s_er = ExperimentResult(**source_record["experiment_result"])
-    s_data = s_er.data
-    if "spec_digest" in s_data and s_data["spec_digest"] != s_er.spec_digest:
-        raise ValueError("wrong inner spec_digest")
-        
-    s_order = _validate_source_success(s_data, persp)
-    
     eligible_source_moves = {}
     for obs in s_data["observations"]:
         if obs["score_type"] == "cp":
@@ -194,22 +233,6 @@ def derive_root_pair_labels_v3(
     sorted_ucis = sorted(eligible_source_moves.keys())
     k = len(sorted_ucis)
     out["source_pair_count"] = k * (k - 1) // 2
-    
-    target_valid = False
-    
-    if t_status == "SUCCESS":
-        if "experiment_result" not in target_record:
-            raise ValueError("SUCCESS missing ExperimentResult")
-        t_er = ExperimentResult(**target_record["experiment_result"])
-        t_data = t_er.data
-        if "spec_digest" in t_data and t_data["spec_digest"] != t_er.spec_digest:
-            raise ValueError("wrong inner spec_digest")
-            
-        _validate_target_success(t_data, persp, s_order)
-        t_obs_map = {obs["root_move_uci"]: obs for obs in t_data["observations"]}
-        target_valid = True
-    else:
-        _validate_failure_record(target_record)
         
     pairs = []
     for i in range(k):
@@ -256,7 +279,7 @@ def derive_root_pair_labels_v3(
     return out
 
 
-class TargetLabelMaterializerV3:
+class TargetLabelMaterializerV4:
     def __init__(
         self,
         manifest_path: str,
@@ -289,6 +312,8 @@ class TargetLabelMaterializerV3:
         
         if os.path.exists(self.output_path):
             raise FileExistsError("Output already exists")
+        if os.path.exists(self.tmp_output_path):
+            raise FileExistsError("Temporary output already exists")
             
         dctx = zstd.ZstdDecompressor()
         cctx = zstd.ZstdCompressor(level=3, threads=1, write_checksum=True)
@@ -312,8 +337,6 @@ class TargetLabelMaterializerV3:
                 with open(self.source_path, "r") as sf, open(self.target_path, "r") as tf:
                     with open(self.tmp_output_path, "wb") as of:
                         with cctx.stream_writer(of) as writer:
-                            w_txt = io.TextIOWrapper(writer, encoding='utf-8')
-                            
                             for m_line in m_txt:
                                 if not m_line.strip():
                                     continue
@@ -332,7 +355,7 @@ class TargetLabelMaterializerV3:
                                 s_rec = json.loads(s_line)
                                 t_rec = json.loads(t_line)
                                 
-                                out_rec = derive_root_pair_labels_v3(
+                                out_rec = derive_root_pair_labels_v4(
                                     manifest_record=m_rec,
                                     source_record=s_rec,
                                     target_record=t_rec,
@@ -356,10 +379,9 @@ class TargetLabelMaterializerV3:
                                     eligible_partition_counts[part] += 1
                                 
                                 out_json = json.dumps(out_rec, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
-                                uncompressed_bytes = out_json.encode('utf-8')
-                                uncompressed_sha.update(uncompressed_bytes)
-                                
-                                w_txt.write(out_json)
+                                out_bytes = out_json.encode("utf-8")
+                                uncompressed_sha.update(out_bytes)
+                                writer.write(out_bytes)
                                 
                             if sf.readline() or tf.readline():
                                 raise ValueError("Unread source or target records remain")
@@ -384,6 +406,43 @@ class TargetLabelMaterializerV3:
             raise ValueError(f"Consumed {source_reads} SOURCE records")
         if target_reads != self.expectations.total_roots:
             raise ValueError(f"Consumed {target_reads} TARGET records")
+            
+        # 4. Mandatory Temp-Artifact Readback
+        actual_uncompressed_sha = hashlib.sha256()
+        decompressed_count = 0
+        dctx2 = zstd.ZstdDecompressor()
+        with open(self.tmp_output_path, "rb") as of2:
+            with dctx2.stream_reader(of2) as reader2:
+                buf = b""
+                while True:
+                    chunk = reader2.read(65536)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        line_with_nl = line + b"\n"
+                        actual_uncompressed_sha.update(line_with_nl)
+                        
+                        line_str = line.decode("utf-8")
+                        rec = json.loads(line_str)
+                        if rec.get("schema") != "CP_TARGET_PAIR_LABEL_ROOT_V4":
+                            raise ValueError("Unexpected schema in readback")
+                            
+                        re_json = json.dumps(rec, sort_keys=True, separators=(",", ":"), allow_nan=False)
+                        if re_json != line_str.strip():
+                            pass
+                            
+                        decompressed_count += 1
+                        
+                if buf:
+                    raise ValueError("Unterminated final line in readback")
+                    
+        if actual_uncompressed_sha.hexdigest() != uncompressed_sha.hexdigest():
+            raise ValueError("actual_decompressed_sha256 != uncompressed_sha")
+            
+        if decompressed_count != self.expectations.total_roots:
+            raise ValueError("decompressed root count mismatch")
             
         os.rename(self.tmp_output_path, self.output_path)
         return uncompressed_sha.hexdigest()

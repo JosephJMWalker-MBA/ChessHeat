@@ -920,3 +920,7 @@ Next blocker: INDEPENDENT_TARGET_LABEL_DERIVATION_IMPLEMENTATION_REAUDIT_V2_REQU
 V3 repaired V2 failures around string-matching ExperimentResult payloads and monkeypatched testing. Implemented unified `ExperimentResult(**...)` parses, canonical JSON-spacing support, immutable expectation dataclasses, and strict determinism via the real `run()` command.
 Status: TARGET_LABEL_DERIVATION_V3_IMPLEMENTED_REAUDIT_REQUIRED.
 Next blocker: INDEPENDENT_TARGET_LABEL_DERIVATION_IMPLEMENTATION_REAUDIT_V3_REQUIRED.
+
+### Target Label Derivation V4
+- Repaired TextIOWrapper output bug and strict target boundary leakage.
+- Added deterministic compression assertions and temp-artifact readback guarantees.
