@@ -891,3 +891,9 @@ TARGET acquisition explicitly authorized and executed against 33,859 frozen July
 Current status: TARGET_ACQUISITION_V1_ACQUIRED_SEAL_REAUDIT_REQUIRED
 Next blocker: INDEPENDENT_TARGET_ACQUISITION_EVIDENCE_REAUDIT_REQUIRED
 Downstream analysis, labels, and model training remain explicitly UNAUTHORIZED pending the independent evidence re-audit.
+
+## 2026-08-26 TARGET Acquisition Seal V2
+V1 seal preliminary review found deterministic seal-layer defects. Raw TARGET acquisition remained unchanged. Seal V2 corrected manifest count semantics and explicit exact-completion equality gates.
+Current status: TARGET_ACQUISITION_V1_ACQUIRED_SEAL_V2_REAUDIT_REQUIRED
+Next blocker: INDEPENDENT_TARGET_ACQUISITION_EVIDENCE_V2_REAUDIT_REQUIRED
+Labels/training remain unauthorized.
