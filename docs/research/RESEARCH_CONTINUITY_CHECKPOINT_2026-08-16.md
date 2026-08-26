@@ -885,3 +885,9 @@ Hostile audit of the V3 target acquisition runner implementation has passed (`TA
 
 ## 2026-08-22 TARGET Acquisition V3 Supplemental Re-Audit
 Prior audit (ce1c47bf) had insufficient independent execution evidence. Supplemental audit natively performed the required hostile execution matrices. Final authoritative verdict: `TARGET_ACQUISITION_IMPLEMENTATION_V3_REAUDIT_PASS`. Execution remains paused pending final specific authorization bound to the audited SHA.
+
+## 2026-08-22 TARGET Acquisition V1 Execution and Seal
+TARGET acquisition explicitly authorized and executed against 33,859 frozen July roots. Artifact successfully captured 1,067,664 typed observations. Raw TARGET artifact cryptographically sealed at `d9b290bd44902559fd98f3b9c17b35b586ff72425cb2783b42cf76e200e81b00`.
+Current status: TARGET_ACQUISITION_V1_ACQUIRED_SEAL_REAUDIT_REQUIRED
+Next blocker: INDEPENDENT_TARGET_ACQUISITION_EVIDENCE_REAUDIT_REQUIRED
+Downstream analysis, labels, and model training remain explicitly UNAUTHORIZED pending the independent evidence re-audit.
