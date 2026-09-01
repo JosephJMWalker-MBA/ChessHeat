@@ -367,3 +367,8 @@ A validation artifact is not trustworthy merely because tests pass; the evidence
 ### O-013 — Engine-State & Evaluation-Order Robustness (T1.12)
 
 Are CP regret relationships stable to root-evaluation ordering and transposition-table state?
+
+### TARGET Label Derivation V5
+- **Status**: ACCEPTED
+- **Rationale**: V4 failed due to loose readback equality checking, unpinned zstandard compilation environments, and insufficient test matrices. V5 establishes deterministic runtime environment pins, strict 40-char SHA requirements for execution, and a 45-matrix hostile test sweep.
+- **Constraints**: Label derivation is permanently gated behind exact Python binary and dependency byte matching.

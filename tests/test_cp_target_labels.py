@@ -1,3 +1,4 @@
+from types import MappingProxyType
 import pytest
 import json
 import os
@@ -6,8 +7,8 @@ import tempfile
 import shutil
 import pathlib
 from chessheat.cp_target_labels import (
-    derive_root_pair_labels_v4,
-    TargetLabelMaterializerV4,
+    derive_root_pair_labels_v5,
+    TargetLabelMaterializerV5,
     LabelMaterializationExpectations,
     FROZEN_JULY_2026_LABEL_EXPECTATIONS,
     _validate_failure_record,
@@ -59,8 +60,8 @@ def create_synthetic_root(m_id="root_1"):
     }
 
 def create_payload_dict(instrument, obs_list, role="SOURCE", override_nodes=False, c_order=None):
-    pass
-    pass
+    import json
+    import hashlib
     if c_order is None:
         c_order = [o["root_move_uci"] for o in obs_list]
     for o in obs_list:
@@ -77,10 +78,9 @@ def create_payload_dict(instrument, obs_list, role="SOURCE", override_nodes=Fals
         "producer_uci_name": "Stockfish 18",
         "spec_digest": "spec1"
     }
-    er = ExperimentResult.create("spec1", data)
-    er.data_payload = er.data_payload.replace("\"spec_digest\": \"e26\",", "\"spec_digest\": \"" + er.spec_digest + "\",")
-    
-    return er.model_dump()
+    payload = json.dumps(data, sort_keys=True)
+    art_digest = hashlib.sha256(f"spec1:{payload}".encode("utf-8")).hexdigest()
+    return {"spec_digest": "spec1", "data_payload": payload, "artifact_digest": art_digest}
 
 def create_obs(i, uci, stype, sval, persp="white"):
     return {
@@ -122,7 +122,7 @@ def test_canonical_m1_m2_unordered_generation_and_mate_exclusion():
     s_payload = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
     t_payload = create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")
     
-    out = derive_root_pair_labels_v4(
+    out = derive_root_pair_labels_v5(
         root,
         create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload),
         create_record("CP_TARGET_ACQUISITION_RESULT_V2", t_payload),
@@ -159,8 +159,8 @@ def test_target_invariance():
     root = create_synthetic_root()
     s_payload = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
     
-    out1 = derive_root_pair_labels_v4(root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs_1, "TARGET")), "m", "s", "t", "seal", "appr")
-    out2 = derive_root_pair_labels_v4(root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs_2, "TARGET")), "m", "s", "t", "seal", "appr")
+    out1 = derive_root_pair_labels_v5(root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs_1, "TARGET")), "m", "s", "t", "seal", "appr")
+    out2 = derive_root_pair_labels_v5(root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs_2, "TARGET")), "m", "s", "t", "seal", "appr")
     
     assert out1["source_cp_move_count"] == out2["source_cp_move_count"]
     assert out1["pairs"][0]["pair_id"] == out2["pairs"][0]["pair_id"]
@@ -176,147 +176,417 @@ def test_target_failure_invariance():
     root = create_synthetic_root()
     s_payload = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
     
-    out1 = derive_root_pair_labels_v4(root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs_1, "TARGET")), "m", "s", "t", "seal", "appr")
-    out2 = derive_root_pair_labels_v4(root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload), create_record("CP_TARGET_ACQUISITION_RESULT_V2", None, "FAILURE"), "m", "s", "t", "seal", "appr")
+    out1 = derive_root_pair_labels_v5(root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs_1, "TARGET")), "m", "s", "t", "seal", "appr")
+    out2 = derive_root_pair_labels_v5(root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload), create_record("CP_TARGET_ACQUISITION_RESULT_V2", None, "FAILURE"), "m", "s", "t", "seal", "appr")
     
     assert out1["pairs"][0]["pair_id"] == out2["pairs"][0]["pair_id"]
     assert out2["pairs"][0]["target_label"] is None
     assert out2["pairs"][0]["target_non_evaluable_reason"] == "TARGET_ACQUISITION_FAILURE"
 
 def test_hostile_inputs():
+    import json
+    import hashlib
     root = create_synthetic_root()
     s_obs = [create_obs(0, "a2a3", "cp", 10)]
     t_obs = [create_obs(0, "a2a3", "cp", 10)]
-    
-    # 1. Wrong SOURCE schema
+
+    def run_derive(s_rec, t_rec):
+        derive_root_pair_labels_v5(root, s_rec, t_rec, "m", "s", "t", "seal", "appr")
+
+    # 1. wrong SOURCE outer schema
     with pytest.raises(ValueError, match="wrong SOURCE outer schema"):
-        derive_root_pair_labels_v4(
-            root, create_record("WRONG", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")),
-            create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")),
-            "m", "s", "t", "seal", "appr"
-        )
-    # 2. Wrong TARGET schema
-    with pytest.raises(ValueError, match="wrong TARGET outer schema"):
-        derive_root_pair_labels_v4(
-            root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")),
-            create_record("WRONG", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")),
-            "m", "s", "t", "seal", "appr"
-        )
-    # 3. Duplicate UCI
-    bad_obs = [create_obs(0, "a2a3", "cp", 10), create_obs(1, "a2a3", "cp", 20)]
-    with pytest.raises(ValueError, match="duplicate canonical UCI"):
-        derive_root_pair_labels_v4(
-            root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", bad_obs, "SOURCE")),
-            create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", bad_obs, "TARGET")),
-            "m", "s", "t", "seal", "appr"
-        )
-    # 4. Source/Target legal universe mismatch
-    with pytest.raises(ValueError, match="SOURCE/TARGET legal-universe mismatch"):
-        derive_root_pair_labels_v4(
-            root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", [create_obs(0, "a2a3", "cp", 10)], "SOURCE")),
-            create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", [create_obs(0, "b2b3", "cp", 10)], "TARGET")),
-            "m", "s", "t", "seal", "appr"
-        )
-    # 5. Invalid SOURCE status
-    with pytest.raises(ValueError, match="invalid SOURCE status"):
-        derive_root_pair_labels_v4(
-            root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE"), status="UNORDERED"),
-            create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")),
-            "m", "s", "t", "seal", "appr"
-        )
-    # 6. Invalid TARGET status
-    with pytest.raises(ValueError, match="invalid TARGET status"):
-        derive_root_pair_labels_v4(
-            root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")),
-            create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET"), status="UNORDERED"),
-            "m", "s", "t", "seal", "appr"
-        )
-    # 7. SUCCESS missing ExperimentResult
-    rec_s = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE"))
-    del rec_s["experiment_result"]
-    with pytest.raises(ValueError, match="SUCCESS missing ExperimentResult"):
-        derive_root_pair_labels_v4(
-            root, rec_s,
-            create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")),
-            "m", "s", "t", "seal", "appr"
-        )
-    # 8. FAILURE containing ExperimentResult
-    rec_f = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", None, status="FAILURE")
-    rec_f["experiment_result"] = {"a": 1}
-    with pytest.raises(ValueError, match="FAILURE containing experiment_result"):
-        derive_root_pair_labels_v4(
-            root, rec_f,
-            create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")),
-            "m", "s", "t", "seal", "appr"
-        )
-    # 9. FAILURE missing error_type
-    rec_f2 = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", None, status="FAILURE")
-    del rec_f2["error_type"]
-    with pytest.raises(ValueError, match="FAILURE missing error_type"):
-        derive_root_pair_labels_v4(
-            root, rec_f2,
-            create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")),
-            "m", "s", "t", "seal", "appr"
-        )
-    # 10. FAILURE missing error_message
-    rec_f3 = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", None, status="FAILURE")
-    del rec_f3["error_message"]
-    with pytest.raises(ValueError, match="FAILURE missing error_message"):
-        derive_root_pair_labels_v4(
-            root, rec_f3,
-            create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")),
-            "m", "s", "t", "seal", "appr"
-        )
-    # 11. Stale artifact_digest
-    s_p = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
-    s_p["artifact_digest"] = "stale"
-    with pytest.raises(ValueError, match="artifact_digest mismatch"):
-        ExperimentResult(**s_p)
-    # 12. Missing inner spec_digest
-    s_p2 = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
-    er = ExperimentResult(**s_p2)
-     
+        run_derive(create_record("WRONG", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
     
-    import json
-    import hashlib
-    data = json.loads(s_p2["data_payload"])
+    # 2. wrong TARGET outer schema
+    with pytest.raises(ValueError, match="wrong TARGET outer schema"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")), create_record("WRONG", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 3. invalid SOURCE status
+    with pytest.raises(ValueError, match="invalid SOURCE status"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE"), status="UNORDERED"), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 4. invalid TARGET status
+    with pytest.raises(ValueError, match="invalid TARGET status"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET"), status="UNORDERED"))
+
+    # 5. SUCCESS missing ExperimentResult
+    rec = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE"))
+    del rec["experiment_result"]
+    with pytest.raises(ValueError, match="SUCCESS missing ExperimentResult"):
+        run_derive(rec, create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 6. FAILURE containing ExperimentResult
+    rec = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", None, status="FAILURE")
+    rec["experiment_result"] = {"a": 1}
+    with pytest.raises(ValueError, match="FAILURE containing experiment_result"):
+        run_derive(rec, create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 7. FAILURE missing error_type
+    rec = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", None, status="FAILURE")
+    del rec["error_type"]
+    with pytest.raises(ValueError, match="FAILURE missing error_type"):
+        run_derive(rec, create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 8. FAILURE missing error_message
+    rec = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", None, status="FAILURE")
+    del rec["error_message"]
+    with pytest.raises(ValueError, match="FAILURE missing error_message"):
+        run_derive(rec, create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 9. non-string error_type
+    rec = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", None, status="FAILURE")
+    rec["error_type"] = 123
+    with pytest.raises(ValueError, match="FAILURE missing error_type"):
+        run_derive(rec, create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 10. empty error_type
+    rec = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", None, status="FAILURE")
+    rec["error_type"] = ""
+    with pytest.raises(ValueError, match="FAILURE missing error_type"):
+        run_derive(rec, create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 11. non-string error_message
+    rec = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", None, status="FAILURE")
+    rec["error_message"] = 123
+    with pytest.raises(ValueError, match="FAILURE missing error_message"):
+        run_derive(rec, create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 12. empty error_message
+    rec = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", None, status="FAILURE")
+    rec["error_message"] = ""
+    with pytest.raises(ValueError, match="FAILURE missing error_message"):
+        run_derive(rec, create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 13. malformed ExperimentResult
+    rec = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE"))
+    del rec["experiment_result"]["data_payload"]
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        run_derive(rec, create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 14. stale artifact_digest
+    rec = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE"))
+    rec["experiment_result"]["artifact_digest"] = "stale"
+    with pytest.raises(ValidationError, match="artifact_digest mismatch"):
+        run_derive(rec, create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 15. missing inner spec_digest
+    rec = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE"))
+    data = json.loads(rec["experiment_result"]["data_payload"])
     del data["spec_digest"]
-    s_p2["data_payload"] = json.dumps(data, sort_keys=True)
-    s_p2["artifact_digest"] = hashlib.sha256(f"{s_p2['spec_digest']}:{s_p2['data_payload']}".encode("utf-8")).hexdigest()
-    with pytest.raises(ValueError, match="wrong inner spec_digest"):
-        derive_root_pair_labels_v4(
-            root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_p2),
-            create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")),
-            "m", "s", "t", "seal", "appr"
-        )
-    # 13. wrong SOURCE role
+    rec["experiment_result"]["data_payload"] = json.dumps(data, sort_keys=True)
+    rec["experiment_result"]["artifact_digest"] = hashlib.sha256(f"spec1:{rec['experiment_result']['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="inner spec_digest"):
+        run_derive(rec, create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 16. wrong inner spec_digest
+    rec = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE"))
+    data = json.loads(rec["experiment_result"]["data_payload"])
+    data["spec_digest"] = "wrong"
+    rec["experiment_result"]["data_payload"] = json.dumps(data, sort_keys=True)
+    rec["experiment_result"]["artifact_digest"] = hashlib.sha256(f"spec1:{rec['experiment_result']['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="inner spec_digest"):
+        run_derive(rec, create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 17. wrong SOURCE role
     with pytest.raises(ValueError, match="wrong SOURCE role"):
-        derive_root_pair_labels_v4(
-            root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "TARGET")),
-            create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")),
-            "m", "s", "t", "seal", "appr"
-        )
-    # 14. wrong TARGET role
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "TARGET")), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 18. wrong TARGET role
     with pytest.raises(ValueError, match="wrong TARGET role"):
-        derive_root_pair_labels_v4(
-            root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")),
-            create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "SOURCE")),
-            "m", "s", "t", "seal", "appr"
-        )
-    # 15. nonlexical canonical order
-    bad_lex = [create_obs(0, "b2b3", "cp", 10), create_obs(1, "a2a3", "cp", 20)]
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "SOURCE")))
+
+    # 19. wrong SOURCE instrument
+    with pytest.raises(ValueError, match="wrong SOURCE instrument"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("WRONG", s_obs, "SOURCE")), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 20. wrong TARGET instrument
+    with pytest.raises(ValueError, match="wrong TARGET instrument"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("WRONG", t_obs, "TARGET")))
+
+    # 21. wrong producer
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    data["producer_uci_name"] = "wrong"
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="wrong producer"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 22. wrong pre SHA
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    data["pre_spawn_sha256"] = "wrong"
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="wrong pre SHA"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 23. wrong post SHA
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    data["post_spawn_sha256"] = "wrong"
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="wrong post SHA"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 24. wrong comparison perspective
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    data["comparison_perspective"] = "black"
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="wrong comparison perspective"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 25. canonical order missing
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    del data["canonical_acquisition_order"]
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="canonical order missing or wrong type"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 26. canonical order non-list
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    data["canonical_acquisition_order"] = 123
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="canonical order missing or wrong type"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 27. empty canonical order
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    data["canonical_acquisition_order"] = []
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="canonical order missing or wrong type"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 28. non-string UCI
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    data["canonical_acquisition_order"] = [123]
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="canonical order wrong type"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 29. duplicate UCI
+    with pytest.raises(ValueError, match="duplicate canonical UCI"):
+        bad_obs = [create_obs(0, "a2a3", "cp", 10), create_obs(1, "a2a3", "cp", 20)]
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", bad_obs, "SOURCE")), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", bad_obs, "TARGET")))
+
+    # 30. nonlexical order
     with pytest.raises(ValueError, match="nonlexical canonical order"):
-        derive_root_pair_labels_v4(
-            root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", bad_lex, "SOURCE")),
-            create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", bad_lex, "TARGET")),
-            "m", "s", "t", "seal", "appr"
-        )
+        bad_lex = [create_obs(0, "b2b3", "cp", 10), create_obs(1, "a2a3", "cp", 20)]
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", bad_lex, "SOURCE")), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", bad_lex, "TARGET")))
+
+    # 31. wrong observation count
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    data["observations"] = []
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="wrong observation count"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 32. malformed observation
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    del data["observations"][0]["root_move_uci"]
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="wrong root_move_uci"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 33. wrong canonical index
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    data["observations"][0]["canonical_acquisition_index"] = 99
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="wrong canonical index"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 34. wrong isolation index
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    data["observations"][0]["isolation_sequence_index"] = 99
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="wrong isolation index"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 35. wrong root_move_uci
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    data["observations"][0]["root_move_uci"] = "h2h3"
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="wrong root_move_uci"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 36. wrong SOURCE requested_nodes
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    data["observations"][0]["requested_nodes"] = 123
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="requested_nodes"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 37. wrong TARGET requested_nodes
+    d = create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")
+    data = json.loads(d["data_payload"])
+    data["observations"][0]["requested_nodes"] = 123
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="requested_nodes"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")), create_record("CP_TARGET_ACQUISITION_RESULT_V2", d))
+
+    # 38. invalid score_type
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    data["observations"][0]["score_type"] = "invalid"
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="invalid score type"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 39. bool score_value
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    data["observations"][0]["score_value"] = True
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="noninteger score_value"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 40. noninteger score_value
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    data["observations"][0]["score_value"] = 1.5
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="noninteger score_value"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 41. wrong observation perspective
+    d = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
+    data = json.loads(d["data_payload"])
+    data["observations"][0]["perspective"] = "wrong"
+    d["data_payload"] = json.dumps(data, sort_keys=True)
+    d["artifact_digest"] = hashlib.sha256(f"spec1:{d['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="wrong observation perspective"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", d), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 42. wrong root identity
+    s = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE"))
+    s["root_identity"] = "wrong"
+    with pytest.raises(ValueError, match="wrong root identity"):
+        run_derive(s, create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 43. wrong root digest
+    s = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE"))
+    s["root_record_digest"] = "wrong"
+    with pytest.raises(ValueError, match="wrong root digest"):
+        run_derive(s, create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")))
+
+    # 44. SOURCE/TARGET legal-universe mismatch
+    with pytest.raises(ValueError, match="SOURCE/TARGET legal-universe mismatch"):
+        run_derive(create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", [create_obs(0, "a2a3", "cp", 10)], "SOURCE")), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", [create_obs(0, "b2b3", "cp", 10)], "TARGET")))
+
+    # 45. SOURCE failure + malformed TARGET SUCCESS
+    s = create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", None, status="FAILURE")
+    s["error_type"] = "Engine"
+    s["error_message"] = "msg"
+    t = create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET"))
+    # break target
+    t_data = json.loads(t["experiment_result"]["data_payload"])
+    t_data["producer_uci_name"] = "wrong"
+    t["experiment_result"]["data_payload"] = json.dumps(t_data, sort_keys=True)
+    t["experiment_result"]["artifact_digest"] = hashlib.sha256(f"spec1:{t['experiment_result']['data_payload']}".encode("utf-8")).hexdigest()
+    with pytest.raises(ValueError, match="wrong producer"):
+        run_derive(s, t)
+
 
 def test_approved_sha_gate_hostile(tmp_path, monkeypatch):
     assert check_approved_sha(None) == False
     assert check_approved_sha("0000000000000000000000000000000000000000") == False
+    assert check_approved_sha("short") == False
+    
+    # 9 cases
+    # Mocking check_approved_sha internally tests git directly
+    import subprocess
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    
+    def run_cmd(cmd):
+        return subprocess.run(cmd, cwd=repo_dir, shell=True, capture_output=True, text=True).stdout.strip()
+        
+    run_cmd("git init")
+    
+    # Needs a commit to have objects
+    (repo_dir / "src").mkdir()
+    (repo_dir / "src" / "chessheat").mkdir()
+    (repo_dir / "scripts").mkdir()
+    (repo_dir / "artifacts" / "research").mkdir(parents=True)
+    (repo_dir / "requirements").mkdir()
+    
+    # create files
+    for f in ["src/chessheat/cp_target_labels.py", "scripts/run_cp_target_label_derivation.py", "artifacts/research/target_label_derivation_runtime_pin_v1.json", "requirements/target-label-runtime-v1.txt"]:
+        with open(repo_dir / f, "w") as fp:
+            fp.write("content")
+            
+    run_cmd("git add .")
+    run_cmd("git config user.email 'test@test.com'")
+    run_cmd("git config user.name 'test'")
+    run_cmd("git commit -m 'init'")
+    
+    head_sha = run_cmd("git rev-parse HEAD")
+    blob_sha = run_cmd("git rev-parse HEAD:src/chessheat/cp_target_labels.py")
+    tree_sha = run_cmd("git rev-parse HEAD^{tree}")
+    
+    monkeypatch.chdir(repo_dir)
+    
+    assert check_approved_sha(None) == False
+    assert check_approved_sha("0000000000000000000000000000000000000000") == False
+    assert check_approved_sha(blob_sha) == False
+    assert check_approved_sha(tree_sha) == False
+    
+    assert check_approved_sha(head_sha) == True
+    
+    # Staged drift
+    with open(repo_dir / "src/chessheat/cp_target_labels.py", "w") as fp: fp.write("drift")
+    run_cmd("git add .")
+    assert check_approved_sha(head_sha) == False
+    
+    # Unstaged drift
+    run_cmd("git reset --hard HEAD")
+    with open(repo_dir / "src/chessheat/cp_target_labels.py", "w") as fp: fp.write("drift")
+    assert check_approved_sha(head_sha) == False
+    
+    run_cmd("git reset --hard HEAD")
+    # Audit only commit
+    with open(repo_dir / "docs_dummy.md", "w") as fp: fp.write("audit")
+    run_cmd("git add .")
+    run_cmd("git commit -m 'audit'")
+    assert check_approved_sha(head_sha) == True
+    
+    # Stale implementation commit
+    with open(repo_dir / "src/chessheat/cp_target_labels.py", "w") as fp: fp.write("new impl")
+    run_cmd("git add .")
+    run_cmd("git commit -m 'new impl'")
+    assert check_approved_sha(head_sha) == False
+
 
 def test_roundtrip_and_determinism(tmp_path):
+    import json
     import hashlib
     import zstandard as zstd
     import io
@@ -347,16 +617,16 @@ def test_roundtrip_and_determinism(tmp_path):
         pair_eligible_roots=1,
         zero_pair_roots=0,
         total_pairs=1,
-        all_partition_counts={"TRAIN": 0, "VALIDATION": 0, "TEST": 1},
-        eligible_partition_counts={"TRAIN": 0, "VALIDATION": 0, "TEST": 1}
+        all_partition_counts=MappingProxyType({"TRAIN": 0, "VALIDATION": 0, "TEST": 1}),
+        eligible_partition_counts=MappingProxyType({"TRAIN": 0, "VALIDATION": 0, "TEST": 1})
     )
     
     out1 = tmp_path / "out1.jsonl.zst"
-    mat1 = TargetLabelMaterializerV4(str(m_path), str(s_path), str(t_path), str(out1), "m", "s", "t", "seal", "appr", exp)
+    mat1 = TargetLabelMaterializerV5(str(m_path), str(s_path), str(t_path), str(out1), "m", "s", "t", "seal", "appr", exp)
     u_sha1 = mat1.run()
     
     out2 = tmp_path / "out2.jsonl.zst"
-    mat2 = TargetLabelMaterializerV4(str(m_path), str(s_path), str(t_path), str(out2), "m", "s", "t", "seal", "appr", exp)
+    mat2 = TargetLabelMaterializerV5(str(m_path), str(s_path), str(t_path), str(out2), "m", "s", "t", "seal", "appr", exp)
     u_sha2 = mat2.run()
     
     with open(out1, "rb") as f: c_bytes1 = f.read()

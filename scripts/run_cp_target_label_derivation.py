@@ -3,7 +3,7 @@ import os
 import sys
 import hashlib
 import subprocess
-from chessheat.cp_target_labels import TargetLabelMaterializerV4, FROZEN_JULY_2026_LABEL_EXPECTATIONS
+from chessheat.cp_target_labels import TargetLabelMaterializerV5, FROZEN_JULY_2026_LABEL_EXPECTATIONS
 
 MANIFEST_PATH = "artifacts/research/cp_source_feasibility_2026_07/cp_root_population_manifest_v2.jsonl.zst"
 SOURCE_PATH = "artifacts/research/cp_source_feasibility_2026_07/raw/cp_source_root_results_v2.jsonl"
@@ -46,7 +46,7 @@ def hash_manifest(path):
     return sha.hexdigest(), count, admitted
 
 def check_approved_sha(sha_val):
-    if not sha_val:
+    if not sha_val or len(sha_val) != 40 or not all(c in "0123456789abcdef" for c in sha_val):
         return False
     res = subprocess.run(["git", "cat-file", "-t", sha_val], capture_output=True, text=True)
     if res.returncode != 0 or res.stdout.strip() != "commit":
@@ -118,7 +118,7 @@ def main():
         
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
         
-    mat = TargetLabelMaterializerV4(
+    mat = TargetLabelMaterializerV5(
         manifest_path=MANIFEST_PATH,
         source_path=SOURCE_PATH,
         target_path=TARGET_PATH,

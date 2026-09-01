@@ -3,6 +3,7 @@ import json
 import os
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
+from types import MappingProxyType
 from chessheat.experiment import ExperimentResult
 from chessheat.protocol_freeze import SourcePairFeatures, get_partition
 from chessheat.attribution import compare_scores
@@ -14,8 +15,8 @@ class LabelMaterializationExpectations:
     pair_eligible_roots: int
     zero_pair_roots: int
     total_pairs: int
-    all_partition_counts: Dict[str, int]
-    eligible_partition_counts: Dict[str, int]
+    all_partition_counts: MappingProxyType[str, int]
+    eligible_partition_counts: MappingProxyType[str, int]
 
 FROZEN_JULY_2026_LABEL_EXPECTATIONS = LabelMaterializationExpectations(
     total_roots=33859,
@@ -135,7 +136,7 @@ def _validate_target_success(data: dict, expected_perspective: str) -> list:
             
     return canonical_order
             
-def derive_root_pair_labels_v4(
+def derive_root_pair_labels_v5(
     manifest_record: Dict[str, Any],
     source_record: Dict[str, Any],
     target_record: Dict[str, Any],
@@ -198,7 +199,7 @@ def derive_root_pair_labels_v4(
         _validate_failure_record(target_record)
     
     out = {
-        "schema": "CP_TARGET_PAIR_LABEL_ROOT_V4",
+        "schema": "CP_TARGET_PAIR_LABEL_ROOT_V5",
         "label_derivation_protocol": "CP_TARGET_LABEL_DERIVATION_V4",
         "label_derivation_software_revision": approved_sha,
         "protocol_id": "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7",
@@ -279,7 +280,58 @@ def derive_root_pair_labels_v4(
     return out
 
 
-class TargetLabelMaterializerV4:
+
+def _verify_runtime_pin():
+    import sys
+    import json
+    import hashlib
+    import importlib.metadata
+    from pathlib import Path
+
+    pin_path = Path("artifacts/research/target_label_derivation_runtime_pin_v1.json")
+    if not pin_path.exists():
+        raise RuntimeError("Missing runtime pin artifact")
+    with open(pin_path, "r") as f:
+        pin = json.load(f)
+
+    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    if pin["python_version"] != py_ver:
+        raise RuntimeError(f"Python version mismatch. Expected {pin['python_version']}, got {py_ver}")
+
+    with open(sys.executable, "rb") as f:
+        exe_sha = hashlib.sha256(f.read()).hexdigest()
+    if pin["python_executable_sha256"] != exe_sha:
+        raise RuntimeError("Python executable SHA mismatch")
+
+    z_ver = importlib.metadata.version("zstandard")
+    if pin["zstandard_version"] != z_ver:
+        raise RuntimeError(f"zstandard version mismatch. Expected {pin['zstandard_version']}, got {z_ver}")
+
+    record_bytes = None
+    for file_obj in importlib.metadata.files("zstandard"):
+        if file_obj.name == "RECORD":
+            record_bytes = file_obj.read_binary()
+            break
+    if not record_bytes:
+        raise RuntimeError("Missing zstandard RECORD")
+
+    rec_sha = hashlib.sha256(record_bytes).hexdigest()
+    if pin["zstandard_record_sha256"] != rec_sha:
+        raise RuntimeError("zstandard RECORD SHA mismatch")
+
+    import zstandard as zstd
+    zstd_path = Path(zstd.__file__).parent
+    for name, expected_sha in pin["zstandard_native_file_sha256"].items():
+        so_path = zstd_path / name
+        if not so_path.exists():
+            raise RuntimeError(f"Missing native extension {name}")
+        with open(so_path, "rb") as f:
+            so_sha = hashlib.sha256(f.read()).hexdigest()
+        if so_sha != expected_sha:
+            raise RuntimeError(f"Native extension {name} SHA mismatch")
+
+
+class TargetLabelMaterializerV5:
     def __init__(
         self,
         manifest_path: str,
@@ -307,6 +359,7 @@ class TargetLabelMaterializerV4:
         self.expectations = expectations
 
     def run(self) -> str:
+        _verify_runtime_pin()
         import zstandard as zstd
         import io
         
@@ -316,7 +369,7 @@ class TargetLabelMaterializerV4:
             raise FileExistsError("Temporary output already exists")
             
         dctx = zstd.ZstdDecompressor()
-        cctx = zstd.ZstdCompressor(level=3, threads=1, write_checksum=True)
+        cctx = zstd.ZstdCompressor(level=3, threads=0, write_checksum=True, write_content_size=False, write_dict_id=False)
         
         uncompressed_sha = hashlib.sha256()
         
@@ -355,7 +408,7 @@ class TargetLabelMaterializerV4:
                                 s_rec = json.loads(s_line)
                                 t_rec = json.loads(t_line)
                                 
-                                out_rec = derive_root_pair_labels_v4(
+                                out_rec = derive_root_pair_labels_v5(
                                     manifest_record=m_rec,
                                     source_record=s_rec,
                                     target_record=t_rec,
@@ -426,12 +479,12 @@ class TargetLabelMaterializerV4:
                         
                         line_str = line.decode("utf-8")
                         rec = json.loads(line_str)
-                        if rec.get("schema") != "CP_TARGET_PAIR_LABEL_ROOT_V4":
+                        if rec.get("schema") != "CP_TARGET_PAIR_LABEL_ROOT_V5":
                             raise ValueError("Unexpected schema in readback")
                             
                         re_json = json.dumps(rec, sort_keys=True, separators=(",", ":"), allow_nan=False)
-                        if re_json != line_str.strip():
-                            pass
+                        if re_json != line_str:
+                            raise ValueError("Exact canonical serialization equality failed")
                             
                         decompressed_count += 1
                         
