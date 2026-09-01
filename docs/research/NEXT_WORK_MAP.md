@@ -791,3 +791,17 @@ Real July labels:
 
 Model training:
 0 / UNAUTHORIZED
+
+### TARGET Label Derivation V6 Supplemental Re-Audit
+
+V6 Supplemental Re-Audit:
+TARGET_LABEL_DERIVATION_V6_REAUDIT_PASS
+
+Next blocker:
+EXPLICIT_TARGET_LABEL_DERIVATION_EXECUTION_AUTHORIZATION_REQUIRED
+
+Real July labels:
+0 / NOT RUN / UNAUTHORIZED
+
+Model training:
+0 / UNAUTHORIZED
