@@ -7,8 +7,8 @@ import tempfile
 import shutil
 import pathlib
 from chessheat.cp_target_labels import (
-    derive_root_pair_labels_v5,
-    TargetLabelMaterializerV5,
+    derive_root_pair_labels_v6,
+    TargetLabelMaterializerV6,
     LabelMaterializationExpectations,
     FROZEN_JULY_2026_LABEL_EXPECTATIONS,
     _validate_failure_record,
@@ -122,7 +122,7 @@ def test_canonical_m1_m2_unordered_generation_and_mate_exclusion():
     s_payload = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
     t_payload = create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs, "TARGET")
     
-    out = derive_root_pair_labels_v5(
+    out = derive_root_pair_labels_v6(
         root,
         create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload),
         create_record("CP_TARGET_ACQUISITION_RESULT_V2", t_payload),
@@ -159,8 +159,8 @@ def test_target_invariance():
     root = create_synthetic_root()
     s_payload = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
     
-    out1 = derive_root_pair_labels_v5(root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs_1, "TARGET")), "m", "s", "t", "seal", "appr")
-    out2 = derive_root_pair_labels_v5(root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs_2, "TARGET")), "m", "s", "t", "seal", "appr")
+    out1 = derive_root_pair_labels_v6(root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs_1, "TARGET")), "m", "s", "t", "seal", "appr")
+    out2 = derive_root_pair_labels_v6(root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs_2, "TARGET")), "m", "s", "t", "seal", "appr")
     
     assert out1["source_cp_move_count"] == out2["source_cp_move_count"]
     assert out1["pairs"][0]["pair_id"] == out2["pairs"][0]["pair_id"]
@@ -176,8 +176,8 @@ def test_target_failure_invariance():
     root = create_synthetic_root()
     s_payload = create_payload_dict("CP_SOURCE_SF18_50K_ISOLATED_V1", s_obs, "SOURCE")
     
-    out1 = derive_root_pair_labels_v5(root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs_1, "TARGET")), "m", "s", "t", "seal", "appr")
-    out2 = derive_root_pair_labels_v5(root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload), create_record("CP_TARGET_ACQUISITION_RESULT_V2", None, "FAILURE"), "m", "s", "t", "seal", "appr")
+    out1 = derive_root_pair_labels_v6(root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload), create_record("CP_TARGET_ACQUISITION_RESULT_V2", create_payload_dict("CP_TARGET_SF18_250K_ISOLATED_V1", t_obs_1, "TARGET")), "m", "s", "t", "seal", "appr")
+    out2 = derive_root_pair_labels_v6(root, create_record("CP_SOURCE_FEASIBILITY_RESULT_V2", s_payload), create_record("CP_TARGET_ACQUISITION_RESULT_V2", None, "FAILURE"), "m", "s", "t", "seal", "appr")
     
     assert out1["pairs"][0]["pair_id"] == out2["pairs"][0]["pair_id"]
     assert out2["pairs"][0]["target_label"] is None
@@ -191,7 +191,7 @@ def test_hostile_inputs():
     t_obs = [create_obs(0, "a2a3", "cp", 10)]
 
     def run_derive(s_rec, t_rec):
-        derive_root_pair_labels_v5(root, s_rec, t_rec, "m", "s", "t", "seal", "appr")
+        derive_root_pair_labels_v6(root, s_rec, t_rec, "m", "s", "t", "seal", "appr")
 
     # 1. wrong SOURCE outer schema
     with pytest.raises(ValueError, match="wrong SOURCE outer schema"):
@@ -516,11 +516,11 @@ def test_hostile_inputs():
 
 
 def test_approved_sha_gate_hostile(tmp_path, monkeypatch):
+    from scripts.run_cp_target_label_derivation import check_approved_sha
     assert check_approved_sha(None) == False
     assert check_approved_sha("0000000000000000000000000000000000000000") == False
     assert check_approved_sha("short") == False
     
-    # 9 cases
     # Mocking check_approved_sha internally tests git directly
     import subprocess
     repo_dir = tmp_path / "repo"
@@ -531,15 +531,26 @@ def test_approved_sha_gate_hostile(tmp_path, monkeypatch):
         
     run_cmd("git init")
     
-    # Needs a commit to have objects
     (repo_dir / "src").mkdir()
     (repo_dir / "src" / "chessheat").mkdir()
     (repo_dir / "scripts").mkdir()
-    (repo_dir / "artifacts" / "research").mkdir(parents=True)
+    (repo_dir / "artifacts").mkdir()
+    (repo_dir / "artifacts" / "research").mkdir()
     (repo_dir / "requirements").mkdir()
     
-    # create files
-    for f in ["src/chessheat/cp_target_labels.py", "scripts/run_cp_target_label_derivation.py", "artifacts/research/target_label_derivation_runtime_pin_v1.json", "requirements/target-label-runtime-v1.txt"]:
+    bound_files = [
+        "artifacts/research/target_label_derivation_runtime_pin_v1.json",
+        "requirements/target-label-runtime-v1.txt",
+        "src/chessheat/cp_target_labels.py",
+        "src/chessheat/attribution.py",
+        "src/chessheat/models.py",
+        "src/chessheat/protocol_freeze.py",
+        "src/chessheat/experiment.py",
+        "src/chessheat/cp_root_population.py",
+        "scripts/run_cp_target_label_derivation.py"
+    ]
+    
+    for f in bound_files:
         with open(repo_dir / f, "w") as fp:
             fp.write("content")
             
@@ -558,6 +569,7 @@ def test_approved_sha_gate_hostile(tmp_path, monkeypatch):
     assert check_approved_sha("0000000000000000000000000000000000000000") == False
     assert check_approved_sha(blob_sha) == False
     assert check_approved_sha(tree_sha) == False
+    assert check_approved_sha(head_sha.upper()) == False
     
     assert check_approved_sha(head_sha) == True
     
@@ -571,6 +583,16 @@ def test_approved_sha_gate_hostile(tmp_path, monkeypatch):
     with open(repo_dir / "src/chessheat/cp_target_labels.py", "w") as fp: fp.write("drift")
     assert check_approved_sha(head_sha) == False
     
+    # Runtime pin drift
+    run_cmd("git reset --hard HEAD")
+    with open(repo_dir / "artifacts/research/target_label_derivation_runtime_pin_v1.json", "w") as fp: fp.write("drift")
+    assert check_approved_sha(head_sha) == False
+    
+    # Runtime requirements drift
+    run_cmd("git reset --hard HEAD")
+    with open(repo_dir / "requirements/target-label-runtime-v1.txt", "w") as fp: fp.write("drift")
+    assert check_approved_sha(head_sha) == False
+
     run_cmd("git reset --hard HEAD")
     # Audit only commit
     with open(repo_dir / "docs_dummy.md", "w") as fp: fp.write("audit")
@@ -617,16 +639,20 @@ def test_roundtrip_and_determinism(tmp_path):
         pair_eligible_roots=1,
         zero_pair_roots=0,
         total_pairs=1,
-        all_partition_counts=MappingProxyType({"TRAIN": 0, "VALIDATION": 0, "TEST": 1}),
-        eligible_partition_counts=MappingProxyType({"TRAIN": 0, "VALIDATION": 0, "TEST": 1})
+        all_train=0,
+        all_validation=0,
+        all_test=1,
+        eligible_train=0,
+        eligible_validation=0,
+        eligible_test=1
     )
     
     out1 = tmp_path / "out1.jsonl.zst"
-    mat1 = TargetLabelMaterializerV5(str(m_path), str(s_path), str(t_path), str(out1), "m", "s", "t", "seal", "appr", exp)
+    mat1 = TargetLabelMaterializerV6(str(m_path), str(s_path), str(t_path), str(out1), "m", "s", "t", "seal", "appr", exp)
     u_sha1 = mat1.run()
     
     out2 = tmp_path / "out2.jsonl.zst"
-    mat2 = TargetLabelMaterializerV5(str(m_path), str(s_path), str(t_path), str(out2), "m", "s", "t", "seal", "appr", exp)
+    mat2 = TargetLabelMaterializerV6(str(m_path), str(s_path), str(t_path), str(out2), "m", "s", "t", "seal", "appr", exp)
     u_sha2 = mat2.run()
     
     with open(out1, "rb") as f: c_bytes1 = f.read()
@@ -641,3 +667,124 @@ def test_roundtrip_and_determinism(tmp_path):
         decompressed_bytes = dctx.decompress(f.read(), max_output_size=1048576)
         
     assert hashlib.sha256(decompressed_bytes).hexdigest() == u_sha1
+
+
+def test_deep_freeze_rejection():
+    from chessheat.cp_target_labels import FROZEN_JULY_2026_LABEL_EXPECTATIONS
+    import pytest
+    with pytest.raises(Exception):
+        FROZEN_JULY_2026_LABEL_EXPECTATIONS.all_train = 99999
+
+
+def test_runtime_pin_hostile(tmp_path, monkeypatch):
+    import json
+    import os
+    import sys
+    import hashlib
+    from chessheat.cp_target_labels import _verify_runtime_pin
+    import pathlib
+    
+    # Create dummy environment files
+    env_dir = tmp_path / "env"
+    env_dir.mkdir()
+    
+    # We will use the REAL sys.version_info and REAL sys.executable, but we will mock the native extensions and RECORD 
+    # so we don't depend on the real zstandard installation in a hostile test. Actually, _verify_runtime_pin 
+    # opens sys.executable, so we just hash the real one for the base_pin.
+    py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    with open(sys.executable, "rb") as f:
+        real_exe_sha = hashlib.sha256(f.read()).hexdigest()
+        
+    import importlib.metadata
+    class DummyFile:
+        def __init__(self, name, content):
+            self.name = name
+            self.content = content
+        def read_binary(self):
+            return self.content
+    def mock_files(pkg):
+        if pkg == "zstandard":
+            return [DummyFile("RECORD", b"dummy_record")]
+        return []
+    def mock_version(pkg):
+        if pkg == "zstandard":
+            return "0.25.0"
+        return "0.0.0"
+    monkeypatch.setattr(importlib.metadata, "files", mock_files)
+    monkeypatch.setattr(importlib.metadata, "version", mock_version)
+    dummy_rec_sha = hashlib.sha256(b"dummy_record").hexdigest()
+    
+    zstd_dir = env_dir / "zstd"
+    zstd_dir.mkdir()
+    so1 = env_dir / "backend.so"
+    so1.write_bytes(b"so1")
+    so1_sha = hashlib.sha256(b"so1").hexdigest()
+    
+    pin_file = env_dir / "pin.json"
+    
+    orig_path = pathlib.Path
+    class MockPath:
+        def __new__(cls, *args, **kwargs):
+            val = str(args[0])
+            if "target_label_derivation_runtime_pin_v1.json" in val:
+                return orig_path(pin_file)
+            elif "zstandard" in val and not val.endswith(".so"):
+                return orig_path(zstd_dir)
+            return orig_path(*args, **kwargs)
+            
+    monkeypatch.setattr(pathlib, "Path", MockPath)
+    
+    base_pin = {
+        "schema": "CHESSHEAT_TARGET_LABEL_DERIVATION_RUNTIME_V1",
+        "python_version": py_ver,
+        "python_executable_sha256": real_exe_sha,
+        "zstandard_version": "0.25.0",
+        "zstandard_record_sha256": dummy_rec_sha,
+        "zstandard_native_file_sha256": {
+            "backend.so": so1_sha
+        },
+        "compression_level": 3,
+        "compression_threads": 0,
+        "write_checksum": True,
+        "write_content_size": False,
+        "write_dict_id": False,
+        "scientific_artifact_identity": "UNCOMPRESSED_CANONICAL_JSONL_SHA256",
+        "compressed_artifact_identity": "TRANSPORT_ONLY"
+    }
+    
+    import pytest
+    with pytest.raises(RuntimeError, match="Missing runtime pin artifact"):
+        _verify_runtime_pin()
+        
+    pin_file.write_text(json.dumps(base_pin))
+    _verify_runtime_pin()
+    
+    def test_mutation(key, bad_value, err_match):
+        mutated = base_pin.copy()
+        mutated[key] = bad_value
+        pin_file.write_text(json.dumps(mutated))
+        with pytest.raises(RuntimeError, match=err_match):
+            _verify_runtime_pin()
+            
+    test_mutation("schema", "WRONG", "Invalid runtime pin schema")
+    test_mutation("python_version", "3.9.0", "Python version mismatch")
+    test_mutation("python_executable_sha256", "wrong", "Python executable SHA mismatch")
+    test_mutation("zstandard_version", "0.24.0", "zstandard version mismatch")
+    test_mutation("zstandard_record_sha256", "wrong", "zstandard RECORD SHA mismatch")
+    test_mutation("compression_level", 4, "Invalid compression_level in pin")
+    test_mutation("compression_threads", 1, "Invalid compression_threads in pin")
+    test_mutation("write_checksum", False, "Invalid write_checksum in pin")
+    test_mutation("write_content_size", True, "Invalid write_content_size in pin")
+    test_mutation("write_dict_id", True, "Invalid write_dict_id in pin")
+    test_mutation("scientific_artifact_identity", "WRONG", "Invalid scientific artifact identity in pin")
+    
+    mutated = base_pin.copy()
+    mutated["zstandard_native_file_sha256"] = {"backend.so": "wrong"}
+    pin_file.write_text(json.dumps(mutated))
+    with pytest.raises(RuntimeError, match="Native extension backend.so SHA mismatch"):
+        _verify_runtime_pin()
+        
+    mutated["zstandard_native_file_sha256"] = {"missing.so": "wrong"}
+    pin_file.write_text(json.dumps(mutated))
+    with pytest.raises(RuntimeError, match="Missing native extension missing.so"):
+        _verify_runtime_pin()

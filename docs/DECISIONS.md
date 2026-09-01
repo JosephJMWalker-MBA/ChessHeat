@@ -372,3 +372,14 @@ Are CP regret relationships stable to root-evaluation ordering and transposition
 - **Status**: ACCEPTED
 - **Rationale**: V4 failed due to loose readback equality checking, unpinned zstandard compilation environments, and insufficient test matrices. V5 establishes deterministic runtime environment pins, strict 40-char SHA requirements for execution, and a 45-matrix hostile test sweep.
 - **Constraints**: Label derivation is permanently gated behind exact Python binary and dependency byte matching.
+
+V5's "ACCEPTED" status was premature.
+
+Independent pre-audit review subsequently found deterministic implementation
+and provenance defects.
+
+Authoritative status for V5:
+
+PREAUDIT_FAIL
+
+Superseded by V6 repair.

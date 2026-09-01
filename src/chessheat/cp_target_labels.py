@@ -15,16 +15,24 @@ class LabelMaterializationExpectations:
     pair_eligible_roots: int
     zero_pair_roots: int
     total_pairs: int
-    all_partition_counts: MappingProxyType[str, int]
-    eligible_partition_counts: MappingProxyType[str, int]
+    all_train: int
+    all_validation: int
+    all_test: int
+    eligible_train: int
+    eligible_validation: int
+    eligible_test: int
 
 FROZEN_JULY_2026_LABEL_EXPECTATIONS = LabelMaterializationExpectations(
     total_roots=33859,
     pair_eligible_roots=33444,
     zero_pair_roots=415,
     total_pairs=17788903,
-    all_partition_counts={"TRAIN": 23639, "VALIDATION": 5148, "TEST": 5072},
-    eligible_partition_counts={"TRAIN": 23350, "VALIDATION": 5094, "TEST": 5000}
+    all_train=23639,
+    all_validation=5148,
+    all_test=5072,
+    eligible_train=23350,
+    eligible_validation=5094,
+    eligible_test=5000
 )
 
 def get_target_pair_id(root_identity: str, m1_uci: str, m2_uci: str) -> str:
@@ -136,7 +144,7 @@ def _validate_target_success(data: dict, expected_perspective: str) -> list:
             
     return canonical_order
             
-def derive_root_pair_labels_v5(
+def derive_root_pair_labels_v6(
     manifest_record: Dict[str, Any],
     source_record: Dict[str, Any],
     target_record: Dict[str, Any],
@@ -199,8 +207,8 @@ def derive_root_pair_labels_v5(
         _validate_failure_record(target_record)
     
     out = {
-        "schema": "CP_TARGET_PAIR_LABEL_ROOT_V5",
-        "label_derivation_protocol": "CP_TARGET_LABEL_DERIVATION_V4",
+        "schema": "CP_TARGET_PAIR_LABEL_ROOT_V6",
+        "label_derivation_protocol": "CP_TARGET_LABEL_DERIVATION_V6",
         "label_derivation_software_revision": approved_sha,
         "protocol_id": "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7",
         "protocol_json_sha256": "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef",
@@ -294,6 +302,23 @@ def _verify_runtime_pin():
     with open(pin_path, "r") as f:
         pin = json.load(f)
 
+
+    if pin.get("schema") != "CHESSHEAT_TARGET_LABEL_DERIVATION_RUNTIME_V1":
+        raise RuntimeError("Invalid runtime pin schema")
+        
+    if pin.get("compression_level") != 3:
+        raise RuntimeError("Invalid compression_level in pin")
+    if pin.get("compression_threads") != 0:
+        raise RuntimeError("Invalid compression_threads in pin")
+    if pin.get("write_checksum") is not True:
+        raise RuntimeError("Invalid write_checksum in pin")
+    if pin.get("write_content_size") is not False:
+        raise RuntimeError("Invalid write_content_size in pin")
+    if pin.get("write_dict_id") is not False:
+        raise RuntimeError("Invalid write_dict_id in pin")
+    if pin.get("scientific_artifact_identity") != "UNCOMPRESSED_CANONICAL_JSONL_SHA256":
+        raise RuntimeError("Invalid scientific artifact identity in pin")
+        
     py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
     if pin["python_version"] != py_ver:
         raise RuntimeError(f"Python version mismatch. Expected {pin['python_version']}, got {py_ver}")
@@ -331,7 +356,7 @@ def _verify_runtime_pin():
             raise RuntimeError(f"Native extension {name} SHA mismatch")
 
 
-class TargetLabelMaterializerV5:
+class TargetLabelMaterializerV6:
     def __init__(
         self,
         manifest_path: str,
@@ -408,7 +433,7 @@ class TargetLabelMaterializerV5:
                                 s_rec = json.loads(s_line)
                                 t_rec = json.loads(t_line)
                                 
-                                out_rec = derive_root_pair_labels_v5(
+                                out_rec = derive_root_pair_labels_v6(
                                     manifest_record=m_rec,
                                     source_record=s_rec,
                                     target_record=t_rec,
@@ -450,9 +475,9 @@ class TargetLabelMaterializerV5:
             raise ValueError(f"Zero pair roots mismatch: {zero_pair_roots}")
         if total_pairs != self.expectations.total_pairs:
             raise ValueError(f"Total pairs mismatch: {total_pairs}")
-        if all_partition_counts != self.expectations.all_partition_counts:
+        if all_partition_counts["TRAIN"] != self.expectations.all_train or all_partition_counts["VALIDATION"] != self.expectations.all_validation or all_partition_counts["TEST"] != self.expectations.all_test:
             raise ValueError("All partition counts mismatch")
-        if eligible_partition_counts != self.expectations.eligible_partition_counts:
+        if eligible_partition_counts["TRAIN"] != self.expectations.eligible_train or eligible_partition_counts["VALIDATION"] != self.expectations.eligible_validation or eligible_partition_counts["TEST"] != self.expectations.eligible_test:
             raise ValueError("Eligible partition counts mismatch")
             
         if source_reads != self.expectations.total_roots:
@@ -479,7 +504,7 @@ class TargetLabelMaterializerV5:
                         
                         line_str = line.decode("utf-8")
                         rec = json.loads(line_str)
-                        if rec.get("schema") != "CP_TARGET_PAIR_LABEL_ROOT_V5":
+                        if rec.get("schema") != "CP_TARGET_PAIR_LABEL_ROOT_V6":
                             raise ValueError("Unexpected schema in readback")
                             
                         re_json = json.dumps(rec, sort_keys=True, separators=(",", ":"), allow_nan=False)
@@ -488,7 +513,7 @@ class TargetLabelMaterializerV5:
                             
                         decompressed_count += 1
                         
-                if buf:
+                if buf != b"":
                     raise ValueError("Unterminated final line in readback")
                     
         if actual_uncompressed_sha.hexdigest() != uncompressed_sha.hexdigest():

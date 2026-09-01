@@ -1,18 +1,1 @@
-{
-  "schema": "CHESSHEAT_TARGET_LABEL_DERIVATION_RUNTIME_V1",
-  "python_version": "3.13.5",
-  "python_executable_sha256": "542c879fdc2cfe0be223e4729082bac529780d90c6d811c853de852765b35a35",
-  "zstandard_version": "0.25.0",
-  "zstandard_record_sha256": "7a3879aa205d7463fbf94d91fd0bd168e41fbc4d844f012e53598c2b0fc72bbe",
-  "zstandard_native_file_sha256": {
-    "_cffi.cpython-313-darwin.so": "8eb2e75d7da6742f9b08587344cee8d8d3cc2589e2f5a789e524d36cf2be4d1e",
-    "backend_c.cpython-313-darwin.so": "631a753779102412fb0dc15de7fb27da4b4b26c57c9b796019efff557b3809fe"
-  },
-  "compression_level": 3,
-  "compression_threads": 0,
-  "write_checksum": true,
-  "write_content_size": false,
-  "write_dict_id": false,
-  "scientific_artifact_identity": "UNCOMPRESSED_CANONICAL_JSONL_SHA256",
-  "compressed_artifact_identity": "TRANSPORT_ONLY"
-}
+{"compressed_artifact_identity":"TRANSPORT_ONLY","compression_level":3,"compression_threads":0,"python_executable_sha256":"542c879fdc2cfe0be223e4729082bac529780d90c6d811c853de852765b35a35","python_version":"3.13.5","schema":"CHESSHEAT_TARGET_LABEL_DERIVATION_RUNTIME_V1","scientific_artifact_identity":"UNCOMPRESSED_CANONICAL_JSONL_SHA256","write_checksum":true,"write_content_size":false,"write_dict_id":false,"zstandard_native_file_sha256":{"_cffi.cpython-313-darwin.so":"8eb2e75d7da6742f9b08587344cee8d8d3cc2589e2f5a789e524d36cf2be4d1e","backend_c.cpython-313-darwin.so":"631a753779102412fb0dc15de7fb27da4b4b26c57c9b796019efff557b3809fe"},"zstandard_record_sha256":"7a3879aa205d7463fbf94d91fd0bd168e41fbc4d844f012e53598c2b0fc72bbe","zstandard_version":"0.25.0"}
