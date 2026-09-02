@@ -31,7 +31,7 @@ def main():
     cp.check_execution_gates()
     
     if args.mode == "train":
-        if not os.environ.get("CHESSHEAT_REAL_TRAINING_AUTHORIZED"):
+        if os.environ.get("CHESSHEAT_REAL_TRAINING_AUTHORIZED") != "CHESSHEAT_REAL_TRAINING_V1_AUTHORIZED":
             print("prevented")
             sys.exit(1)
         
@@ -72,7 +72,7 @@ def main():
         sys.exit(0)
         
     elif args.mode == "analyze":
-        if not os.environ.get("CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED"):
+        if os.environ.get("CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED") != "CHESSHEAT_SCIENTIFIC_ANALYSIS_V1_AUTHORIZED":
             print("Analysis execution prevented")
             sys.exit(1)
         print("Analysis authorized")

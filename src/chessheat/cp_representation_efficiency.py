@@ -50,19 +50,43 @@ def verify_approved_sha_gate(approved_sha: str, repo_root: str):
     except subprocess.CalledProcessError:
         raise ValueError("Approved SHA is not an ancestor of HEAD.")
         
+    head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo_root).decode().strip()
+    if head_sha != approved_sha:
+        raise ValueError("HEAD is not approved SHA")
+        
+    head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo_root).decode().strip()
+    if head_sha != approved_sha:
+        raise ValueError("HEAD is not approved SHA")
+        
+    head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo_root).decode().strip()
+    if head_sha != approved_sha:
+        raise ValueError("HEAD is not approved SHA")
+        
     status = subprocess.check_output(["git", "status", "--porcelain"] + BOUND_FILES, cwd=repo_root, stderr=subprocess.STDOUT).decode().strip()
     if status:
         raise ValueError("Staged or unstaged drift in bound files.")
+
+    for file_path in BOUND_FILES:
+        try:
+            commit_content = subprocess.check_output(["git", "show", f"{approved_sha}:{file_path}"], cwd=repo_root, stderr=subprocess.STDOUT)
+        except subprocess.CalledProcessError:
+            raise ValueError(f"File {file_path} not found in commit {approved_sha}")
+            
+        with open(os.path.join(repo_root, file_path), "rb") as f:
+            working_content = f.read()
+            
+        if commit_content != working_content:
+            raise ValueError(f"Byte-for-byte mismatch in bound file {file_path}")
 
 def check_execution_gates(approved_sha: str = None, repo_root: str = "."):
     if approved_sha is None:
         approved_sha = os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA", "")
     verify_approved_sha_gate(approved_sha, repo_root)
-    if os.environ.get("CHESSHEAT_REAL_TRAINING_AUTHORIZED") != "1":
+    if os.environ.get("CHESSHEAT_REAL_TRAINING_AUTHORIZED") != "CHESSHEAT_REAL_TRAINING_V1_AUTHORIZED":
         raise ValueError("Real training not authorized")
-
+        
 def check_analysis_gate():
-    if os.environ.get("CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED") != "1":
+    if os.environ.get("CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED") != "CHESSHEAT_SCIENTIFIC_ANALYSIS_V1_AUTHORIZED":
         raise ValueError("Scientific analysis not authorized")
 
 def _build_model(torch):
@@ -123,8 +147,8 @@ class LearnerRecord:
     label: int
 
 class DerivedCache:
-    def __init__(self):
-        self.roots = {}
+    def __init__(self, data=None):
+        self.roots = data or {}
     def put(self, rid, data):
         self.roots[rid] = data
     def get(self, rid):
@@ -152,8 +176,8 @@ def construct_learner_records(root_record: Dict, condition: str) -> List[Learner
         if str(pair["pair_id"]) != expected_pair_id: raise ValueError("Invalid pair_id")
         
         if pair.get("target_label") is None:
-            if "target_failure_reason" not in pair:
-                raise ValueError("target_failure_reason missing for null target_label")
+            if pair.get("target_non_evaluable_reason") != "TARGET_ACQUISITION_FAILURE":
+                raise ValueError("Null target label requires target_non_evaluable_reason=TARGET_ACQUISITION_FAILURE")
             continue
             
         pf = SourcePairFeatures(pair["m1_uci"], pair["source_cp_m1"], 
@@ -186,6 +210,11 @@ def read_and_validate_roots(records: List[Dict]) -> List[Dict]:
     for r in records:
         if r.get("schema") != "CP_TARGET_PAIR_LABEL_ROOT_V6":
             raise ValueError(f"Invalid schema: {r.get('schema')}")
+        if r.get("protocol_id") != "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7":
+            raise ValueError("protocol_id")
+        if r.get("side_to_move") not in {"w", "b"}:
+            raise ValueError("side_to_move missing or invalid")
+            
         for field in ["protocol_id", "partition", "root_identity", "source_pair_count", "target_evaluable_pair_count", "sufficient_position", "pairs"]:
             if field not in r:
                 raise ValueError(f"Missing required field: {field}")
@@ -195,6 +224,7 @@ def read_and_validate_roots(records: List[Dict]) -> List[Dict]:
         seen_roots.add(r["root_identity"])
                 
         last_m = None
+        eval_count = 0
         for pair in r["pairs"]:
             m1, m2 = pair["m1_uci"], pair["m2_uci"]
             if m1 >= m2:
@@ -203,8 +233,22 @@ def read_and_validate_roots(records: List[Dict]) -> List[Dict]:
                 raise ValueError("Pairs must be strictly increasing")
             last_m = (m1, m2)
             
-            if pair.get("target_label") is None and "target_failure_reason" not in pair:
-                raise ValueError("Null target label requires exact failure reason.")
+            expected_pair_id = hashlib.sha256(f"CHESSHEAT_TARGET_PAIR_V1|{r['root_identity']}|{m1}|{m2}".encode('utf-8')).hexdigest()
+            if str(pair.get("pair_id")) != expected_pair_id:
+                raise ValueError("Invalid pair_id")
+            
+            if pair.get("target_label") is None:
+                if pair.get("target_non_evaluable_reason") != "TARGET_ACQUISITION_FAILURE":
+                    raise ValueError("Null target label requires target_non_evaluable_reason=TARGET_ACQUISITION_FAILURE")
+                if "target_failure_reason" in pair:
+                    raise ValueError("target_failure_reason must be deleted")
+            else:
+                eval_count += 1
+                
+        if len(r["pairs"]) != r["source_pair_count"]:
+            raise ValueError("pair count mismatch")
+        if eval_count != r["target_evaluable_pair_count"]:
+            raise ValueError("evaluable count mismatch")
     return records
 
 def build_root_tensors(torch, records: List[LearnerRecord], device):
@@ -262,11 +306,22 @@ def run_training_job(
     if len(training_root_records) != nominal_budget:
         raise ValueError("Nominal root count mismatch")
         
-    # verify budget selection matches canonical_budget_order prefix
     sorted_recs = sorted(training_root_records, key=lambda x: canonical_budget_order(x["root_identity"]))
     if [r["root_identity"] for r in training_root_records] != [r["root_identity"] for r in sorted_recs][:nominal_budget]:
         raise ValueError("Invalid training roots prefix")
 
+    if nominal_root_population_digest:
+        calculated_train_digest = hashlib.sha256(b"|".join(r["root_identity"].encode() for r in training_root_records)).hexdigest()
+        if calculated_train_digest != nominal_root_population_digest:
+            raise ValueError("Train population digest mismatch")
+    if validation_population_digest:
+        calculated_val_digest = hashlib.sha256(b"|".join(r["root_identity"].encode() for r in validation_root_records)).hexdigest()
+        if calculated_val_digest != validation_population_digest:
+            raise ValueError("Validation population digest mismatch")
+    if test_population_digest:
+        calculated_test_digest = hashlib.sha256(b"|".join(r["root_identity"].encode() for r in test_root_records)).hexdigest()
+        if calculated_test_digest != test_population_digest:
+            raise ValueError("Test population digest mismatch")
         
     ctx = configure_runtime(seed)
     torch = ctx.torch
@@ -359,7 +414,7 @@ def run_training_job(
     test_eval_count += 1
     
     return {
-        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V2",
+        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V6",
         "condition": condition,
         "nominal_budget": nominal_budget,
         "nominal_root_count": len(training_root_records),
