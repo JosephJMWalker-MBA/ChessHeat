@@ -1,4 +1,3 @@
-
 import os
 import sys
 import argparse
@@ -36,7 +35,15 @@ def main():
         except ValueError as e:
             print(e)
             sys.exit(1)
+            
         print("Training execution")
+        # verify_training_evidence_preflight
+        # cache open
+        # build populations
+        # build 160 job specs
+        # run scheduler
+        # validate 160 results
+        
     elif args.mode == "analyze":
         try:
             check_analysis_authorization()

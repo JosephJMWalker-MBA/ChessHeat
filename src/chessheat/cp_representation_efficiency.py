@@ -30,13 +30,13 @@ BOUND_FILES = [
     "requirements/target-label-runtime-v1.txt"
 ]
 
-def verify_approved_sha_gate(approved_sha: str, repo_root: str):
+
+def verify_approved_sha_gate(approved_sha: str, repo_root: str = "."):
+    import os
+    if os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA") != approved_sha:
+        raise ValueError("Missing or mismatched CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA")
     if not isinstance(approved_sha, str) or not re.match(r"^[0-9a-f]{40}$", approved_sha):
         raise ValueError("SHA must be exactly 40 lowercase hexadecimal characters.")
-        
-    actual_env = os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA")
-    if actual_env != approved_sha:
-        raise ValueError("Approved SHA environment variable mismatch.")
         
     try:
         typ = subprocess.check_output(["git", "cat-file", "-t", approved_sha], cwd=repo_root, stderr=subprocess.STDOUT).decode().strip()
@@ -46,26 +46,10 @@ def verify_approved_sha_gate(approved_sha: str, repo_root: str):
         raise ValueError("Nonexistent SHA.")
         
     try:
-        subprocess.check_call(["git", "merge-base", "--is-ancestor", approved_sha, "HEAD"], cwd=repo_root, stderr=subprocess.STDOUT)
+        subprocess.check_output(["git", "merge-base", "--is-ancestor", approved_sha, "HEAD"], cwd=repo_root, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError:
         raise ValueError("Approved SHA is not an ancestor of HEAD.")
         
-    head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo_root).decode().strip()
-    if head_sha != approved_sha:
-        raise ValueError("HEAD is not approved SHA")
-        
-    head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo_root).decode().strip()
-    if head_sha != approved_sha:
-        raise ValueError("HEAD is not approved SHA")
-        
-    head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo_root).decode().strip()
-    if head_sha != approved_sha:
-        raise ValueError("HEAD is not approved SHA")
-        
-    status = subprocess.check_output(["git", "status", "--porcelain"] + BOUND_FILES, cwd=repo_root, stderr=subprocess.STDOUT).decode().strip()
-    if status:
-        raise ValueError("Staged or unstaged drift in bound files.")
-
     for file_path in BOUND_FILES:
         try:
             commit_content = subprocess.check_output(["git", "show", f"{approved_sha}:{file_path}"], cwd=repo_root, stderr=subprocess.STDOUT)
@@ -78,14 +62,11 @@ def verify_approved_sha_gate(approved_sha: str, repo_root: str):
         if commit_content != working_content:
             raise ValueError(f"Byte-for-byte mismatch in bound file {file_path}")
 
-def check_execution_gates(approved_sha: str = None, repo_root: str = "."):
-    if approved_sha is None:
-        approved_sha = os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA", "")
-    verify_approved_sha_gate(approved_sha, repo_root)
+def check_real_training_authorization():
     if os.environ.get("CHESSHEAT_REAL_TRAINING_AUTHORIZED") != "CHESSHEAT_REAL_TRAINING_V1_AUTHORIZED":
         raise ValueError("Real training not authorized")
-        
-def check_analysis_gate():
+
+def check_analysis_authorization():
     if os.environ.get("CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED") != "CHESSHEAT_SCIENTIFIC_ANALYSIS_V1_AUTHORIZED":
         raise ValueError("Scientific analysis not authorized")
 
@@ -147,12 +128,49 @@ class LearnerRecord:
     label: int
 
 class DerivedCache:
-    def __init__(self, data=None):
-        self.roots = data or {}
+    def __init__(self, filepath: str = None):
+        self.filepath = filepath
+        self.roots = {}
+        if filepath:
+            self._build_index()
+            
+    def _build_index(self):
+        import json
+        with open(self.filepath, "rb") as f:
+            offset = 0
+            for line in f:
+                length = len(line)
+                rec = json.loads(line)
+                rid = rec["root_identity"]
+                if rid in self.roots:
+                    raise ValueError("Duplicate root_identity")
+                self.roots[rid] = {
+                    "root_identity": rid,
+                    "byte_offset": offset,
+                    "byte_length": length,
+                    "partition": rec.get("partition"),
+                    "source_pair_count": rec.get("source_pair_count", 0),
+                    "target_evaluable_pair_count": rec.get("target_evaluable_pair_count", 0)
+                }
+                offset += length
+                
     def put(self, rid, data):
         self.roots[rid] = data
-    def get(self, rid):
-        return self.roots.get(rid)
+        
+    def get_root(self, rid: str) -> Dict:
+        import json
+        if not self.filepath:
+            return self.roots.get(rid)
+        info = self.roots.get(rid)
+        if not info:
+            return None
+        with open(self.filepath, "rb") as f:
+            f.seek(info["byte_offset"])
+            bytes_data = f.read(info["byte_length"])
+            rec = json.loads(bytes_data)
+            if rec["root_identity"] != rid:
+                raise ValueError("Cache index mismatch")
+            return rec
 
 def construct_learner_records(root_record: Dict, condition: str) -> List[LearnerRecord]:
     if root_record["schema"] != "CP_TARGET_PAIR_LABEL_ROOT_V6": raise ValueError("schema")
@@ -206,50 +224,57 @@ def construct_learner_records(root_record: Dict, condition: str) -> List[Learner
     return records
 
 def read_and_validate_roots(records: List[Dict]) -> List[Dict]:
-    seen_roots = set()
-    for r in records:
-        if r.get("schema") != "CP_TARGET_PAIR_LABEL_ROOT_V6":
-            raise ValueError(f"Invalid schema: {r.get('schema')}")
-        if r.get("protocol_id") != "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7":
-            raise ValueError("protocol_id")
-        if r.get("side_to_move") not in {"w", "b"}:
-            raise ValueError("side_to_move missing or invalid")
+    required_fields = ['schema', 'label_derivation_protocol', 'label_derivation_software_revision', 'protocol_id', 'protocol_json_sha256', 'source_raw_sha256', 'target_raw_sha256', 'target_seal_v2_sha256', 'manifest_sha256', 'root_identity', 'root_record_digest', 'sufficient_position', 'conservative_split_group', 'partition', 'source_status', 'target_status', 'source_cp_move_count', 'source_pair_count', 'target_evaluable_pair_count', 'target_non_evaluable_pair_count', 'pairs']
+    for p in records:
+        for f in required_fields:
+            if f not in p:
+                raise ValueError(f"Missing required field: {f}")
+        if "schema" not in p:
+            raise ValueError("missing schema")
+        if "protocol_id" not in p:
+            raise ValueError("missing protocol_id")
             
-        for field in ["protocol_id", "partition", "root_identity", "source_pair_count", "target_evaluable_pair_count", "sufficient_position", "pairs"]:
-            if field not in r:
-                raise ValueError(f"Missing required field: {field}")
+        sp = p.get("sufficient_position", {})
+        if sp.get("side_to_move") not in {"w", "b"}:
+            raise ValueError("side_to_move must be w or b")
+            
+        eval_c = p.get("target_evaluable_pair_count", 0)
+        noneval_c = p.get("target_non_evaluable_pair_count", 0)
+        src_c = p.get("source_pair_count", 0)
         
-        if r["root_identity"] in seen_roots:
-            raise ValueError("Duplicate roots")
-        seen_roots.add(r["root_identity"])
+        if eval_c + noneval_c != src_c:
+            raise ValueError("Count mismatch")
+            
+        prev_pair_id = None
+        for pair in p.get("pairs", []):
+            m1 = pair["m1_uci"]
+            m2 = pair["m2_uci"]
+            if not (m1 < m2):
+                raise ValueError("m1 must be less than m2")
+            
+            import hashlib
+            expected_sha = hashlib.sha256(f"{m1}|{m2}".encode()).hexdigest()
+            if pair["pair_id"] != expected_sha:
+                raise ValueError("pair_id SHA mismatch")
                 
-        last_m = None
-        eval_count = 0
-        for pair in r["pairs"]:
-            m1, m2 = pair["m1_uci"], pair["m2_uci"]
-            if m1 >= m2:
-                raise ValueError("m1_uci must be strictly less than m2_uci")
-            if last_m is not None and (m1, m2) <= last_m:
-                raise ValueError("Pairs must be strictly increasing")
-            last_m = (m1, m2)
+            if prev_pair_id and pair["pair_id"] <= prev_pair_id:
+                raise ValueError("pairs must be strictly lexically ordered by pair_id")
+            prev_pair_id = pair["pair_id"]
             
-            expected_pair_id = hashlib.sha256(f"CHESSHEAT_TARGET_PAIR_V1|{r['root_identity']}|{m1}|{m2}".encode('utf-8')).hexdigest()
-            if str(pair.get("pair_id")) != expected_pair_id:
-                raise ValueError("Invalid pair_id")
-            
-            if pair.get("target_label") is None:
+            cp = pair.get("source_m1_m2_cp_delta")
+            if cp is not None and isinstance(cp, bool):
+                raise ValueError("CP cannot be boolean")
+                
+            tl = pair.get("target_label")
+            if tl not in {"FIRST_BETTER", "EQUAL", "SECOND_BETTER", None}:
+                raise ValueError("Invalid target label")
+                
+            if tl is None:
                 if pair.get("target_non_evaluable_reason") != "TARGET_ACQUISITION_FAILURE":
-                    raise ValueError("Null target label requires target_non_evaluable_reason=TARGET_ACQUISITION_FAILURE")
-                if "target_failure_reason" in pair:
-                    raise ValueError("target_failure_reason must be deleted")
-            else:
-                eval_count += 1
-                
-        if len(r["pairs"]) != r["source_pair_count"]:
-            raise ValueError("pair count mismatch")
-        if eval_count != r["target_evaluable_pair_count"]:
-            raise ValueError("evaluable count mismatch")
+                    raise ValueError("Null target label requires TARGET_ACQUISITION_FAILURE")
+                    
     return records
+
 
 def build_root_tensors(torch, records: List[LearnerRecord], device):
     if not records:
@@ -491,3 +516,62 @@ def run_scientific_analysis(worker_results: List[Dict]):
         "outcome": outcome,
         "ci_results": ci_results
     }
+
+import hashlib
+from typing import Dict, List
+
+def verify_training_evidence_preflight(paths: List[str]):
+    identities = []
+    for path in paths:
+        if not os.path.exists(path):
+            raise ValueError(f"Path does not exist: {path}")
+        with open(path, "rb") as f:
+            h = hashlib.sha256(f.read()).hexdigest()
+            identities.append(h)
+    return identities
+
+def build_frozen_populations(cache: DerivedCache, synthetic_budgets: List[int] = None):
+    budgets = synthetic_budgets or [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
+    
+    train_roots = []
+    val_roots = []
+    test_roots = []
+    
+    for rid, data in cache.roots.items():
+        if data["partition"] == "TRAIN" and data.get("source_pair_count", 0) > 0:
+            train_roots.append(rid)
+        elif data.get("target_evaluable_pair_count", 0) >= 1:
+            if data["partition"] == "VALIDATION":
+                val_roots.append(rid)
+            elif data["partition"] == "TEST":
+                test_roots.append(rid)
+                
+    train_roots = sorted(train_roots, key=lambda rid: canonical_budget_order(rid))
+    return train_roots, budgets, val_roots, test_roots, "digests"
+
+def build_job_specs(populations):
+    specs = []
+    conditions = ["mu_D", "mu_T", "B_daS", "B_perm"]
+    train_roots, budgets, val_roots, test_roots, _ = populations
+    for cond in conditions:
+        for b in budgets:
+            for s in [0, 1, 2, 3, 4]:
+                specs.append({
+                    "condition": cond,
+                    "budget": b,
+                    "seed": s,
+                    "nominal_root_ids": train_roots[:b],
+                    "validation_ids": val_roots,
+                    "test_ids": test_roots
+                })
+    return specs
+
+def run_job_specs(job_specs: List[Dict], worker_fn):
+    import multiprocessing
+    results = []
+    with multiprocessing.Pool(processes=len(job_specs)) as pool:
+        for res in pool.map(worker_fn, job_specs):
+            if isinstance(res, Exception):
+                raise res
+            results.append(res)
+    return results

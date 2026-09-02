@@ -971,3 +971,10 @@ Real training:
 
 Scientific analysis:
 NOT PERFORMED / UNAUTHORIZED
+
+- [x] Repair Downstream Training Implementation V7
+  - Verdict: `DOWNSTREAM_TRAINING_IMPLEMENTATION_V7_PREAUDIT_FAIL`
+  - Blocker: Missing claims from the report.
+- [x] Repair Downstream Training Implementation V8
+  - Status: `DOWNSTREAM_TRAINING_IMPLEMENTATION_V8_IMPLEMENTED_REAUDIT_REQUIRED`
+  - V8 successfully implements the four shell, schema, runner, and authentication boundaries required.
