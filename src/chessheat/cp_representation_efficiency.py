@@ -2,10 +2,17 @@ import math
 import os
 import json
 import hashlib
+
+def _hash_list(lst):
+    m = hashlib.sha256()
+    for item in lst:
+        m.update(item.encode('utf-8'))
+        m.update(b'|')
+    return m.hexdigest()
 import re
 import copy
 import subprocess
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, Optional
 from .protocol_freeze import (
     SourcePairFeatures, encode_position, encode_side_information,
     build_m_d, build_m_t, build_m_zero, build_m_perm,
@@ -142,27 +149,45 @@ def label_to_idx(target_label: str) -> int:
     if target_label == "SECOND_BETTER": return 2
     raise ValueError("Invalid target label")
 
+from dataclasses import dataclass
+@dataclass(frozen=True)
 class LearnerRecord:
-    def __init__(self, p_tensor: CanonicalTensorF32, side_tensor: CanonicalTensorF32,
-                 spatial_map: CanonicalTensorF32, label: int):
-        self.p_tensor = p_tensor
-        self.side_tensor = side_tensor
-        self.spatial_map = spatial_map
-        self.label = label
+    p_tensor: Any
+    side_tensor: Any
+    spatial_map: Any
+    label: int
 
 def construct_learner_records(root_record: Dict, condition: str) -> List[LearnerRecord]:
-    # Prevent information boundary leakage
+    if root_record["schema"] != "CP_TARGET_PAIR_LABEL_ROOT_V6": raise ValueError("schema")
+    if root_record["protocol_id"] != "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7": raise ValueError("protocol_id")
+    if root_record["partition"] not in {"TRAIN", "VALIDATION", "TEST"}: raise ValueError("partition")
+    rid = root_record.get("root_identity")
+    if not rid: raise ValueError("root_identity")
+    pairs = root_record["pairs"]
+    if len(pairs) != root_record["source_pair_count"]: raise ValueError("pair count")
+    
+    eval_count = sum(1 for p in pairs if p.get("target_label") is not None)
+    if eval_count != root_record["target_evaluable_pair_count"]: raise ValueError("Eval count mismatch")
+    
     p = encode_position(root_record["sufficient_position"])
     records = []
-    for pair in root_record["pairs"]:
-        # Exclude roots lacking evaluable pairs
+    prev_m = None
+    for pair in pairs:
+        m1, m2 = pair["m1_uci"], pair["m2_uci"]
+        if m1 >= m2: raise ValueError("m1_uci must be strictly less than m2_uci")
+        cur_m = (m1, m2)
+        if prev_m is not None and cur_m <= prev_m: raise ValueError("Pairs must be strictly increasing")
+        prev_m = cur_m
+        
+        expected_pair_id = hashlib.sha256(f"CHESSHEAT_TARGET_PAIR_V1|{rid}|{m1}|{m2}".encode('utf-8')).hexdigest()
+        if str(pair["pair_id"]) != expected_pair_id: raise ValueError("Invalid pair_id")
+        
         if pair.get("target_label") is None:
             continue
             
         pf = SourcePairFeatures(pair["m1_uci"], pair["source_cp_m1"], 
                                 pair["m2_uci"], pair["source_cp_m2"])
                                 
-        # Check integrity of d_X and a_X if provided
         if "d_X" in pair and pair["d_X"] != pf.d_x:
             raise ValueError("d_X consistency failed")
         if "a_X" in pair and pair["a_X"] != pf.a_x:
@@ -243,10 +268,19 @@ def run_training_job(
     seed: int,
     training_root_records: List[Dict],
     validation_root_records: List[Dict],
-    test_root_records: List[Dict]
+    test_root_records: List[Dict],
+    nominal_root_population_digest: str = "",
+    validation_population_digest: str = "",
+    test_population_digest: str = ""
 ):
     if condition == "B_raw":
         raise ValueError("B_RAW_NOT_EXECUTED_IN_PRIMARY_V2_PIPELINE")
+        
+    valid_budgets = {250, 500, 1000, 2000, 4000, 8000, 16000, 20000}
+    if nominal_budget not in valid_budgets:
+        raise ValueError("Invalid budget")
+    if len(training_root_records) != nominal_budget:
+        raise ValueError("Nominal root count mismatch")
         
     ctx = configure_runtime(seed)
     torch = ctx.torch
