@@ -128,22 +128,29 @@ class LearnerRecord:
     label: int
 
 class DerivedCache:
-    def __init__(self, filepath: str = None):
+    def __init__(self, filepath: str = None, expected_sha: str = None):
         self.filepath = filepath
         self.roots = {}
         if filepath:
-            self._build_index()
+            self._build_index(expected_sha)
             
-    def _build_index(self):
+    def _build_index(self, expected_sha: str):
         import json
+        import hashlib
+        hasher = hashlib.sha256()
         with open(self.filepath, "rb") as f:
             offset = 0
             for line in f:
+                hasher.update(line)
                 length = len(line)
                 rec = json.loads(line)
                 rid = rec["root_identity"]
                 if rid in self.roots:
                     raise ValueError("Duplicate root_identity")
+                
+                if offset < 0 or length <= 0:
+                    raise ValueError("invalid offset or length")
+                    
                 self.roots[rid] = {
                     "root_identity": rid,
                     "byte_offset": offset,
@@ -153,14 +160,15 @@ class DerivedCache:
                     "target_evaluable_pair_count": rec.get("target_evaluable_pair_count", 0)
                 }
                 offset += length
-                
-    def put(self, rid, data):
-        self.roots[rid] = data
+            
+            if offset > f.tell():
+                raise ValueError("overlap or overrun")
         
+        if expected_sha and hasher.hexdigest() != expected_sha:
+            raise ValueError(f"Cache SHA mismatch, got {hasher.hexdigest()}")
+                
     def get_root(self, rid: str) -> Dict:
         import json
-        if not self.filepath:
-            return self.roots.get(rid)
         info = self.roots.get(rid)
         if not info:
             return None
@@ -170,8 +178,13 @@ class DerivedCache:
             rec = json.loads(bytes_data)
             if rec["root_identity"] != rid:
                 raise ValueError("Cache index mismatch")
+            if rec["partition"] != info["partition"]:
+                raise ValueError("partition mismatch")
+            if rec.get("source_pair_count", 0) != info["source_pair_count"]:
+                raise ValueError("source_pair_count mismatch")
+            if rec.get("target_evaluable_pair_count", 0) != info["target_evaluable_pair_count"]:
+                raise ValueError("target_evaluable_pair_count mismatch")
             return rec
-
 def construct_learner_records(root_record: Dict, condition: str) -> List[LearnerRecord]:
     if root_record["schema"] != "CP_TARGET_PAIR_LABEL_ROOT_V6": raise ValueError("schema")
     if root_record["protocol_id"] != "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7": raise ValueError("protocol_id")
@@ -253,7 +266,7 @@ def read_and_validate_roots(records: List[Dict]) -> List[Dict]:
                 raise ValueError("m1 must be less than m2")
             
             import hashlib
-            expected_sha = hashlib.sha256(f"{m1}|{m2}".encode()).hexdigest()
+            expected_sha = hashlib.sha256(f"CHESSHEAT_TARGET_PAIR_V1|{p['root_identity']}|{m1}|{m2}".encode()).hexdigest()
             if pair["pair_id"] != expected_sha:
                 raise ValueError("pair_id SHA mismatch")
                 
@@ -261,13 +274,28 @@ def read_and_validate_roots(records: List[Dict]) -> List[Dict]:
                 raise ValueError("pairs must be strictly lexically ordered by pair_id")
             prev_pair_id = pair["pair_id"]
             
-            cp = pair.get("source_m1_m2_cp_delta")
-            if cp is not None and isinstance(cp, bool):
-                raise ValueError("CP cannot be boolean")
+            cp1 = pair.get("source_cp_m1")
+            cp2 = pair.get("source_cp_m2")
+            if type(cp1) is bool or type(cp2) is bool:
+                raise ValueError("source cp cannot be boolean")
                 
+            from chessheat.cp_target_labels import SourcePairFeatures
+            try:
+                sf = SourcePairFeatures(m1, cp1, m2, cp2)
+            except Exception:
+                raise ValueError("bad cp values")
+                
+            if pair.get("d_X") != sf.d_x or pair.get("a_X") != sf.a_x:
+                raise ValueError("a_x or d_x mismatch")
+            
             tl = pair.get("target_label")
             if tl not in {"FIRST_BETTER", "EQUAL", "SECOND_BETTER", None}:
                 raise ValueError("Invalid target label")
+            if tl is None and "target_non_evaluable_reason" not in pair:
+                raise ValueError("missing reason")
+            if tl is not None and "target_non_evaluable_reason" in pair:
+                raise ValueError("reason present with valid label")
+
                 
             if tl is None:
                 if pair.get("target_non_evaluable_reason") != "TARGET_ACQUISITION_FAILURE":
@@ -520,18 +548,68 @@ def run_scientific_analysis(worker_results: List[Dict]):
 import hashlib
 from typing import Dict, List
 
-def verify_training_evidence_preflight(paths: List[str]):
-    identities = []
-    for path in paths:
-        if not os.path.exists(path):
-            raise ValueError(f"Path does not exist: {path}")
-        with open(path, "rb") as f:
-            h = hashlib.sha256(f.read()).hexdigest()
-            identities.append(h)
-    return identities
+@dataclass(frozen=True)
+class EvidenceIdentity:
+    protocol_v7_sha: str
+    seal_v2_sha: str
+    runtime_v3_pin_sha: str
+    runtime_v3_package_lock_sha: str
+    runtime_v3_code_lock_sha: str
+    runtime_v3_requirements_sha: str
+    target_label_runtime_pin_sha: str
+    target_label_requirements_sha: str
+    evidence_audit_commit: str
+    evidence_supplement_commit: str
 
-def build_frozen_populations(cache: DerivedCache, synthetic_budgets: List[int] = None):
-    budgets = synthetic_budgets or [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
+def verify_training_evidence_preflight(repo_root: str = "."):
+    import subprocess
+    def get_sha(path):
+        import hashlib
+        with open(os.path.join(repo_root, path), "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+            
+    if get_sha("artifacts/research/cp_representation_efficiency_protocol_v7.json") != "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef":
+        raise ValueError("SHA mismatch for artifacts/research/cp_representation_efficiency_protocol_v7.json")
+    if get_sha("artifacts/research/cp_target_labels_2026_07/cp_target_label_derivation_seal_v2.json") != "2e4735f40124f4eb7017ff816a4ea55e9f72ac559236a6077a0104273b1ab9c4":
+        raise ValueError("SHA mismatch for artifacts/research/cp_target_labels_2026_07/cp_target_label_derivation_seal_v2.json")
+    if get_sha("artifacts/research/ml_runtime_pin_v3.json") != "e69ae6bcbf96a327b021665b5ac21b63c269cd821be84d567867058b09e98932":
+        raise ValueError("SHA mismatch for artifacts/research/ml_runtime_pin_v3.json")
+    if get_sha("artifacts/research/ml_runtime_package_lock_v3.json") != "2127b9709ef8786f47b9306040a56706ff3a7f6535d2439d692c67bac5fac54d":
+        raise ValueError("SHA mismatch for artifacts/research/ml_runtime_package_lock_v3.json")
+    if get_sha("artifacts/research/ml_runtime_code_lock_v3.json") != "9eebefd15c6c1fe93340a69f270f9bf02f7572b4a307d174307f786355a4ec84":
+        raise ValueError("SHA mismatch for artifacts/research/ml_runtime_code_lock_v3.json")
+    if get_sha("requirements/ml-runtime-v3.txt") != "79ea33529376312052c7f98d0e19e812029697d4ff15a2e93106f94f023bf7c9":
+        raise ValueError("SHA mismatch for requirements/ml-runtime-v3.txt")
+    if get_sha("artifacts/research/target_label_derivation_runtime_pin_v1.json") != "dc707aa6d2709fcdfb108263356a8b0cab4cc459dffd29ba5524241f48ea3e22":
+        raise ValueError("SHA mismatch for artifacts/research/target_label_derivation_runtime_pin_v1.json")
+    if get_sha("requirements/target-label-runtime-v1.txt") != "da56c02977e00d88d897af40d227d773822aa7134d30e1d40c68e1518d666026":
+        raise ValueError("SHA mismatch for requirements/target-label-runtime-v1.txt")
+
+    try:
+        subprocess.check_call(["git", "cat-file", "-e", "2f7560a38427754404c6f1ee6115db950d18815c^{commit}"], cwd=repo_root, stderr=subprocess.STDOUT)
+    except Exception:
+        raise ValueError("evidence audit commit missing")
+        
+    try:
+        subprocess.check_call(["git", "cat-file", "-e", "87e1edad72d2899d0bc7a05d11d9601d60b7cba3^{commit}"], cwd=repo_root, stderr=subprocess.STDOUT)
+    except Exception:
+        raise ValueError("evidence supplement commit missing")
+
+    return EvidenceIdentity(
+        protocol_v7_sha=get_sha("artifacts/research/cp_representation_efficiency_protocol_v7.json"),
+        seal_v2_sha=get_sha("artifacts/research/cp_target_labels_2026_07/cp_target_label_derivation_seal_v2.json"),
+        runtime_v3_pin_sha=get_sha("artifacts/research/ml_runtime_pin_v3.json"),
+        runtime_v3_package_lock_sha=get_sha("artifacts/research/ml_runtime_package_lock_v3.json"),
+        runtime_v3_code_lock_sha=get_sha("artifacts/research/ml_runtime_code_lock_v3.json"),
+        runtime_v3_requirements_sha=get_sha("requirements/ml-runtime-v3.txt"),
+        target_label_runtime_pin_sha=get_sha("artifacts/research/target_label_derivation_runtime_pin_v1.json"),
+        target_label_requirements_sha=get_sha("requirements/target-label-runtime-v1.txt"),
+        evidence_audit_commit="2f7560a38427754404c6f1ee6115db950d18815c",
+        evidence_supplement_commit="87e1edad72d2899d0bc7a05d11d9601d60b7cba3"
+    )
+
+def build_frozen_populations(cache: DerivedCache):
+    budgets = [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
     
     train_roots = []
     val_roots = []
@@ -546,32 +624,112 @@ def build_frozen_populations(cache: DerivedCache, synthetic_budgets: List[int] =
             elif data["partition"] == "TEST":
                 test_roots.append(rid)
                 
+    if len(train_roots) < 20000:
+        raise ValueError("Insufficient eligible TRAIN universe")
+        
     train_roots = sorted(train_roots, key=lambda rid: canonical_budget_order(rid))
-    return train_roots, budgets, val_roots, test_roots, "digests"
+    
+    def mk_digest(domain, items):
+        import hashlib
+        h = hashlib.sha256()
+        h.update(f"{domain}\n".encode())
+        for x in items:
+            h.update(f"{x}\n".encode())
+        return h.hexdigest()
+        
+    d_train = mk_digest("CHESSHEAT_ROOT_POPULATION_V1", train_roots)
+    d_val = mk_digest("CHESSHEAT_ROOT_POPULATION_V1", sorted(val_roots))
+    d_test = mk_digest("CHESSHEAT_ROOT_POPULATION_V1", sorted(test_roots))
+    
+    budget_digests = {}
+    for b in budgets:
+        budget_digests[b] = mk_digest("CHESSHEAT_ROOT_POPULATION_V1", train_roots[:b])
+        
+    return train_roots, budgets, val_roots, test_roots, d_val, d_test, budget_digests
+from dataclasses import dataclass
+@dataclass(frozen=True)
+class JobSpec:
+    condition: str
+    nominal_budget: int
+    seed: int
+    nominal_root_ids: tuple
+    nominal_root_population_digest: str
+    validation_root_ids: tuple
+    validation_population_digest: str
+    test_root_ids: tuple
+    test_population_digest: str
+    protocol_v7_sha: str
+    seal_v2_sha: str
+    label_scientific_sha: str
+    runtime_v3_identity: str
+    approved_implementation_sha: str
 
-def build_job_specs(populations):
+def build_job_specs(populations, protocol_sha, seal_sha, label_sha, runtime_id, approved_sha):
     specs = []
     conditions = ["mu_D", "mu_T", "B_daS", "B_perm"]
-    train_roots, budgets, val_roots, test_roots, _ = populations
+    train_roots, budgets, val_roots, test_roots, d_val, d_test, budget_digests = populations
     for cond in conditions:
         for b in budgets:
-            for s in [0, 1, 2, 3, 4]:
-                specs.append({
-                    "condition": cond,
-                    "budget": b,
-                    "seed": s,
-                    "nominal_root_ids": train_roots[:b],
-                    "validation_ids": val_roots,
-                    "test_ids": test_roots
-                })
+            for s in [1729, 2718, 31415, 65537, 104729]:
+                specs.append(JobSpec(
+                    condition=cond,
+                    nominal_budget=b,
+                    seed=s,
+                    nominal_root_ids=tuple(train_roots[:b]),
+                    nominal_root_population_digest=budget_digests[b],
+                    validation_root_ids=tuple(val_roots),
+                    validation_population_digest=d_val,
+                    test_root_ids=tuple(test_roots),
+                    test_population_digest=d_test,
+                    protocol_v7_sha=protocol_sha,
+                    seal_v2_sha=seal_sha,
+                    label_scientific_sha=label_sha,
+                    runtime_v3_identity=runtime_id,
+                    approved_implementation_sha=approved_sha
+                ))
+    if len(specs) != 160:
+        raise ValueError("Must have exactly 160 specs")
     return specs
+def _process_wrapper(spec, worker_fn, q):
+    try:
+        res = worker_fn(spec)
+        q.put((True, res))
+    except Exception as e:
+        q.put((False, e))
 
-def run_job_specs(job_specs: List[Dict], worker_fn):
+def run_job_specs(job_specs: List[JobSpec], worker_fn):
     import multiprocessing
     results = []
-    with multiprocessing.Pool(processes=len(job_specs)) as pool:
-        for res in pool.map(worker_fn, job_specs):
-            if isinstance(res, Exception):
-                raise res
-            results.append(res)
+    
+    for spec in job_specs:
+        q = multiprocessing.Queue()
+        p = multiprocessing.Process(target=_process_wrapper, args=(spec, worker_fn, q))
+        p.start()
+        p.join()
+
+        
+        if p.exitcode != 0:
+            raise RuntimeError(f"Process crashed with exit code {p.exitcode}")
+            
+        success, res = q.get()
+        if not success:
+            raise res
+        results.append(res)
+        
     return results
+
+def run_training_parent(approved_sha: str, cache_path: str, cache_sha: str, repo_root: str = "."):
+    verify_approved_sha_gate(approved_sha, repo_root)
+    check_real_training_authorization()
+    ev_id = verify_training_evidence_preflight(repo_root)
+    cache = DerivedCache(cache_path, cache_sha)
+    populations = build_frozen_populations(cache)
+    job_specs = build_job_specs(populations, ev_id.protocol_v7_sha, ev_id.seal_v2_sha, cache_sha, ev_id.runtime_v3_pin_sha, approved_sha)
+    
+    results = run_job_specs(job_specs, run_downstream_worker)
+    if len(results) != 160:
+        raise ValueError("Missing results")
+        
+    print("STOP_BEFORE_SCIENTIFIC_ANALYSIS")
+    import sys
+    sys.exit(0)
