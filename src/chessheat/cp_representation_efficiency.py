@@ -1,15 +1,76 @@
+import math
 import os
 import json
 import hashlib
-from typing import Dict, List, Any, Tuple
+import re
 import copy
+import subprocess
+from typing import Dict, List, Any, Tuple
 from .protocol_freeze import (
     SourcePairFeatures, encode_position, encode_side_information,
     build_m_d, build_m_t, build_m_zero, build_m_perm,
-    get_partition, canonical_budget_order, mean_five_seed_root_nll,
+    canonical_budget_order, mean_five_seed_root_nll,
     compute_aulc, full_bootstrap_procedure, classify_outcome, CanonicalTensorF32
 )
 from .ml_runtime import configure_runtime, initialize_model_cpu_then_mps, build_frozen_adam
+
+BOUND_FILES = [
+    "src/chessheat/cp_representation_efficiency.py",
+    "scripts/run_cp_representation_efficiency.py",
+    "src/chessheat/protocol_freeze.py",
+    "src/chessheat/ml_runtime.py",
+    "artifacts/research/cp_representation_efficiency_protocol_v7.json",
+    "artifacts/research/ml_runtime_pin_v3.json",
+    "artifacts/research/ml_runtime_package_lock_v3.json",
+    "artifacts/research/ml_runtime_code_lock_v3.json",
+    "requirements/ml-runtime-v3.txt",
+    "artifacts/research/cp_target_labels_2026_07/cp_target_label_derivation_seal_v2.json",
+    "artifacts/research/target_label_derivation_runtime_pin_v1.json",
+    "requirements/target-label-runtime-v1.txt"
+]
+
+def verify_approved_sha_gate(approved_sha: str, repo_root: str):
+    if not re.match(r"^[0-9a-f]{40}$", approved_sha):
+        raise ValueError("SHA must be exactly 40 lowercase hexadecimal characters.")
+        
+    actual_env = os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA")
+    if actual_env != approved_sha:
+        raise ValueError("Approved SHA environment variable mismatch.")
+        
+    try:
+        typ = subprocess.check_output(["git", "cat-file", "-t", approved_sha], cwd=repo_root, stderr=subprocess.STDOUT).decode().strip()
+        if typ != "commit":
+            raise ValueError(f"Approved SHA must be a commit, got {typ}")
+    except subprocess.CalledProcessError:
+        raise ValueError("Nonexistent SHA.")
+        
+    # Check unstaged/staged drift for bound files
+    status = subprocess.check_output(["git", "status", "--porcelain"] + BOUND_FILES, cwd=repo_root).decode().strip()
+    if status:
+        raise ValueError("Staged or unstaged drift in bound files.")
+        
+    # Check byte-for-byte match of working tree against approved_sha
+    for f in BOUND_FILES:
+        f_path = os.path.join(repo_root, f)
+        if not os.path.exists(f_path):
+            raise ValueError(f"Missing bound file: {f}")
+        with open(f_path, "rb") as f_obj:
+            wt_bytes = f_obj.read()
+        try:
+            commit_bytes = subprocess.check_output(["git", "show", f"{approved_sha}:{f}"], cwd=repo_root)
+            if wt_bytes != commit_bytes:
+                raise ValueError(f"File {f} differs from approved commit {approved_sha}.")
+        except subprocess.CalledProcessError:
+            raise ValueError(f"File {f} not found in approved commit {approved_sha}.")
+
+def check_execution_gates(approved_sha: str, repo_root: str):
+    verify_approved_sha_gate(approved_sha, repo_root)
+    if os.environ.get("CHESSHEAT_REAL_TRAINING_AUTHORIZED") != "1":
+        raise ValueError("Real training not authorized")
+
+def check_analysis_gate():
+    if os.environ.get("CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED") != "1":
+        raise ValueError("Scientific analysis not authorized")
 
 def _build_model(torch):
     nn = torch.nn
@@ -42,6 +103,45 @@ def _build_model(torch):
             return self.combined(torch.cat([s, c], dim=1))
     return RepNet()
 
+def get_epoch_order(seed: int, epoch: int, root_ids: List[str]) -> List[str]:
+    def sort_key(rid: str):
+        digest = hashlib.sha256(f"CHESSHEAT_MINIBATCH_V3|{seed}|{epoch}|{rid}".encode("utf-8")).hexdigest()
+        return (digest, rid)
+    return sorted(root_ids, key=sort_key)
+
+def get_canonical_state_digest(model) -> str:
+    sd = model.state_dict()
+    h = hashlib.sha256()
+    h.update(b"CHESSHEAT_MODEL_STATE_V2\n")
+    for k in sorted(sd.keys()):
+        t = sd[k].cpu().contiguous()
+        name_b = len(k).to_bytes(4, 'little') + k.encode("utf-8")
+        dtype_b = str(t.dtype).encode("utf-8")
+        shape_b = str(list(t.shape)).encode("utf-8")
+        h.update(name_b + b"\n" + dtype_b + b"\n" + shape_b + b"\n")
+        h.update(bytes(t.untyped_storage().tolist()))
+    return h.hexdigest()
+
+def select_budgets(all_roots_metadata: List[Dict]) -> Dict[int, List[str]]:
+    eligible = []
+    for r in all_roots_metadata:
+        if r["partition"] == "TRAIN" and r.get("source_pair_count", 0) > 0:
+            eligible.append(r["root_identity"])
+            
+    eligible.sort(key=canonical_budget_order)
+    budgets = {}
+    for n in [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]:
+        if n > len(eligible):
+            raise ValueError(f"Universe lacks enough TRAIN roots for budget {n}. Found {len(eligible)}.")
+        budgets[n] = eligible[:n]
+    return budgets
+
+def label_to_idx(target_label: str) -> int:
+    if target_label == "FIRST_BETTER": return 0
+    if target_label == "EQUAL": return 1
+    if target_label == "SECOND_BETTER": return 2
+    raise ValueError("Invalid target label")
+
 class LearnerRecord:
     def __init__(self, p_tensor: CanonicalTensorF32, side_tensor: CanonicalTensorF32,
                  spatial_map: CanonicalTensorF32, label: int):
@@ -50,77 +150,24 @@ class LearnerRecord:
         self.spatial_map = spatial_map
         self.label = label
 
-def get_epoch_order(seed: int, epoch: int, root_ids: List[str]) -> List[str]:
-    def sort_key(rid: str):
-        digest = hashlib.sha256(f"CHESSHEAT_MINIBATCH_V3|{seed}|{epoch}|{rid}".encode("utf-8")).hexdigest()
-        return (digest, rid)
-    return sorted(root_ids, key=sort_key)
-
-def get_canonical_state_digest(model) -> str:
-    # CPU contiguous raw tensor bytes in a prospectively fixed canonical byte order
-    sd = model.state_dict()
-    h = hashlib.sha256()
-    h.update(b"CHESSHEAT_MODEL_STATE_V1\n")
-    for k in sorted(sd.keys()):
-        t = sd[k].cpu().contiguous()
-        name_b = k.encode("utf-8")
-        dtype_b = str(t.dtype).encode("utf-8")
-        shape_b = str(list(t.shape)).encode("utf-8")
-        h.update(name_b + b"\n" + dtype_b + b"\n" + shape_b + b"\n")
-        
-        # PyTorch uses little endian standard representation. Convert to raw bytes.
-        # tolist is slow, let's use bytes(t.untyped_storage())
-        h.update(bytes(t.untyped_storage()))
-    return h.hexdigest()
-
-def check_execution_gates(approved_sha: str):
-    actual_sha = os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA")
-    if actual_sha != approved_sha:
-        raise ValueError(f"Approved SHA mismatch. Expected {approved_sha}, got {actual_sha}")
-    if os.environ.get("CHESSHEAT_REAL_TRAINING_AUTHORIZED") != "1":
-        raise ValueError("Real training not authorized")
-
-def check_analysis_gate():
-    if os.environ.get("CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED") != "1":
-        raise ValueError("Scientific analysis not authorized")
-        
-def label_to_idx(target_label: str) -> int:
-    if target_label == "FIRST_BETTER": return 0
-    if target_label == "EQUAL": return 1
-    if target_label == "SECOND_BETTER": return 2
-    raise ValueError("Invalid target label")
-
-def select_budgets(all_roots_metadata: List[Dict]) -> Dict[int, List[str]]:
-    eligible = []
-    for r in all_roots_metadata:
-        if r["partition"] == "TRAIN" and r["source_pair_count"] > 0:
-            eligible.append(r["root_identity"])
-            
-    eligible.sort(key=canonical_budget_order)
-    budgets = {}
-    for n in [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]:
-        if n <= len(eligible):
-            budgets[n] = eligible[:n]
-        else:
-            budgets[n] = list(eligible)
-    return budgets
-
-def prepare_data(artifact_path: str, condition: str, nominal_budget_roots: List[str]):
-    # In real execution this would use the DERIVED cache or parse the .jsonl.zst. 
-    # For now, it mocks it or reads from synthetic JSON if passed.
-    # The actual implementation must NEVER read the real zst unless authorized.
-    # We will accept a list of root records directly for training to avoid huge parsing in V1 core.
-    pass
-
 def construct_learner_records(root_record: Dict, condition: str) -> List[LearnerRecord]:
+    # Prevent information boundary leakage
     p = encode_position(root_record["sufficient_position"])
     records = []
     for pair in root_record["pairs"]:
+        # Exclude roots lacking evaluable pairs
         if pair.get("target_label") is None:
             continue
             
         pf = SourcePairFeatures(pair["m1_uci"], pair["source_cp_m1"], 
                                 pair["m2_uci"], pair["source_cp_m2"])
+                                
+        # Check integrity of d_X and a_X if provided
+        if "d_X" in pair and pair["d_X"] != pf.d_x:
+            raise ValueError("d_X consistency failed")
+        if "a_X" in pair and pair["a_X"] != pf.a_x:
+            raise ValueError("a_X consistency failed")
+            
         side = encode_side_information(pf)
         
         if condition == "mu_D":
@@ -138,6 +185,23 @@ def construct_learner_records(root_record: Dict, condition: str) -> List[Learner
         records.append(LearnerRecord(p, side, m, label))
     return records
 
+def read_and_validate_roots(records: List[Dict]) -> List[Dict]:
+    for r in records:
+        if r.get("schema") != "CP_TARGET_PAIR_LABEL_ROOT_V6":
+            raise ValueError(f"Invalid schema: {r.get('schema')}")
+        for field in ["protocol_id", "partition", "root_identity", "source_pair_count", "target_evaluable_pair_count", "sufficient_position", "pairs"]:
+            if field not in r:
+                raise ValueError(f"Missing required field: {field}")
+                
+        last_pair_id = None
+        for pair in r["pairs"]:
+            if last_pair_id is not None and pair["pair_id"] <= last_pair_id:
+                raise ValueError("Pairs must be lexically ordered")
+            last_pair_id = pair["pair_id"]
+            if pair.get("target_label") not in [None, "FIRST_BETTER", "EQUAL", "SECOND_BETTER"]:
+                raise ValueError(f"Invalid target label domain: {pair.get('target_label')}")
+    return records
+
 def build_root_tensors(torch, records: List[LearnerRecord], device):
     if not records:
         return None
@@ -145,7 +209,6 @@ def build_root_tensors(torch, records: List[LearnerRecord], device):
     side_list = []
     labels = []
     for r in records:
-        # P is [18, 8, 8], m is [8, 8]. Concat to [19, 8, 8]
         p_t = torch.tensor(r.p_tensor.values, dtype=torch.float32).view(18, 8, 8)
         m_t = torch.tensor(r.spatial_map.values, dtype=torch.float32).view(1, 8, 8)
         spatial = torch.cat([p_t, m_t], dim=0)
@@ -183,7 +246,7 @@ def run_training_job(
     test_root_records: List[Dict]
 ):
     if condition == "B_raw":
-        raise ValueError("B_RAW_NOT_EXECUTED_IN_PRIMARY_V1_PIPELINE")
+        raise ValueError("B_RAW_NOT_EXECUTED_IN_PRIMARY_V2_PIPELINE")
         
     ctx = configure_runtime(seed)
     torch = ctx.torch
@@ -192,6 +255,10 @@ def run_training_job(
     model = initialize_model_cpu_then_mps(_build_model, ctx)
     optimizer = build_frozen_adam(model, torch)
     loss_fn = torch.nn.CrossEntropyLoss(reduction='mean')
+    
+    training_root_records = read_and_validate_roots(training_root_records)
+    validation_root_records = read_and_validate_roots(validation_root_records)
+    test_root_records = read_and_validate_roots(test_root_records)
     
     # Target attrition
     effective_train_roots = {}
@@ -212,6 +279,9 @@ def run_training_job(
         if recs:
             test_roots[r["root_identity"]] = build_root_tensors(torch, recs, device)
 
+    if not val_roots:
+        raise ValueError("Validation population cannot be empty.")
+        
     best_val_nll = float('inf')
     best_epoch = -1
     best_state_digest = None
@@ -222,6 +292,7 @@ def run_training_job(
     
     effective_root_ids = sorted(list(effective_train_roots.keys()))
     val_root_ids = sorted(list(val_roots.keys()))
+    test_eval_count = 0
     
     for epoch in range(200):
         model.train()
@@ -238,12 +309,10 @@ def run_training_job(
                 (root_loss / B).backward()
             optimizer.step()
             
-        # Validation
         val_nlls = evaluate_roots(model, val_roots, val_root_ids, torch)
-        if not val_nlls:
-            val_loss = 0.0
-        else:
-            val_loss = sum(val_nlls.values()) / len(val_nlls)
+        val_loss = sum(val_nlls.values()) / len(val_nlls)
+        if not math.isfinite(val_loss):
+            raise ValueError("Non-finite validation loss encountered")
             
         val_trace.append(val_loss)
         
@@ -259,24 +328,110 @@ def run_training_job(
         if non_improvement >= patience:
             break
             
-    # Restore best checkpoint
     model.load_state_dict(best_state_dict)
     
-    # Evaluate test exactly once
     test_root_ids = sorted(list(test_roots.keys()))
     test_nlls = evaluate_roots(model, test_roots, test_root_ids, torch)
+    test_eval_count += 1
     
     return {
-        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V1",
+        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V2",
         "condition": condition,
         "nominal_budget": nominal_budget,
+        "nominal_root_count": len(training_root_records),
         "effective_training_root_count": len(effective_root_ids),
         "seed": seed,
+        "approved_implementation_sha": os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA"),
+        "protocol_v7_sha": "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef",
+        "label_seal_v2_sha": "2e4735f40124f4eb7017ff816a4ea55e9f72ac559236a6077a0104273b1ab9c4",
+        "label_scientific_sha": "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2",
+        "ml_runtime_v3_identity": "CHESSHEAT_ML_RUNTIME_V3",
         "best_epoch": best_epoch,
         "best_validation_root_nll": best_val_nll,
         "epochs_completed": epoch + 1,
         "validation_trace": val_trace,
-        "test_evaluation_count": 1,
+        "test_evaluation_count": test_eval_count,
+        "test_root_ids": test_root_ids,
         "test_root_losses": test_nlls,
         "canonical_model_state_sha": best_state_digest
+    }
+
+def run_scientific_analysis(worker_results: List[Dict]):
+    check_analysis_gate()
+    
+    # 1. Gather all conditions/budgets/seeds test root NLLs
+    # Condition -> Budget -> Seed -> Root_ID -> NLL
+    aggregated_data = {}
+    for res in worker_results:
+        c = res["condition"]
+        if c == "B_perm" or c == "B_raw":
+            continue
+            
+        b = res["nominal_budget"]
+        s = res["seed"]
+        nlls = res["test_root_losses"]
+        
+        if c not in aggregated_data:
+            aggregated_data[c] = {}
+        if b not in aggregated_data[c]:
+            aggregated_data[c][b] = {}
+        aggregated_data[c][b][s] = nlls
+        
+    # Aggregate over 5 seeds
+    # Condition -> Budget -> Root_ID -> Mean_NLL
+    mean_nlls = {}
+    for c, budgets in aggregated_data.items():
+        mean_nlls[c] = {}
+        for b, seeds_data in budgets.items():
+            if len(seeds_data) != 5:
+                raise ValueError(f"Expected 5 seeds for condition {c}, budget {b}, got {len(seeds_data)}")
+                
+            mean_nlls[c][b] = {}
+            # Assume all seeds have same test roots
+            test_roots = list(seeds_data.values())[0].keys()
+            for root in test_roots:
+                root_seed_nlls = {seed: nlls[root] for seed, nlls in seeds_data.items()}
+                mean_nlls[c][b][root] = mean_five_seed_root_nll(root_seed_nlls)
+                
+    # Utilities: Condition -> Budget -> U_mu
+    utilities = {}
+    for c, budgets in mean_nlls.items():
+        utilities[c] = {}
+        for b, root_nlls in budgets.items():
+            avg_test_nll = sum(root_nlls.values()) / len(root_nlls)
+            utilities[c][b] = -avg_test_nll
+            
+    # AULCs: Condition -> AULC
+    budgets_ordered = [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
+    aulcs = {}
+    for c, u in utilities.items():
+        utils_ordered = [u[b] for b in budgets_ordered]
+        aulcs[c] = compute_aulc(budgets_ordered, utils_ordered)
+        
+    # Bootstrap
+    test_root_ids = list(mean_nlls["mu_D"][250].keys())
+    # Format required by full_bootstrap_procedure: Dict[str, Dict[int, Dict[str, float]]]
+    # cond -> budget -> root_id -> value. Wait, the parameter is:
+    # root_losses: Dict[str, Dict[int, Dict[str, float]]] (condition -> budget -> root -> loss)
+    # The return is dict mapping condition to dict mapping 'mean', 'lower', 'upper'
+    ci_results = full_bootstrap_procedure(test_root_ids, mean_nlls)
+    
+    # Deltas
+    dt_ci = ci_results["Delta_DT"]
+    d0_ci = ci_results["Delta_D0"]
+    t0_ci = ci_results["Delta_T0"]
+    
+    outcome = classify_outcome(
+        (dt_ci["lower"], dt_ci["upper"]),
+        (d0_ci["lower"], d0_ci["upper"]),
+        (t0_ci["lower"], t0_ci["upper"]),
+        True
+    )
+    
+    return {
+        "AULC_D": aulcs.get("mu_D"),
+        "AULC_T": aulcs.get("mu_T"),
+        "AULC_BdaS": aulcs.get("B_daS"),
+        "outcome": outcome,
+        "ci_results": ci_results
     }
