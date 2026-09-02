@@ -1,12 +1,12 @@
+import math
 import os
 import json
 import hashlib
 import re
 import copy
-import math
+import subprocess
 from typing import Dict, List, Any, Tuple, Optional
 from dataclasses import dataclass
-
 from .protocol_freeze import (
     SourcePairFeatures, encode_position, encode_side_information,
     build_m_d, build_m_t, build_m_zero, build_m_perm,
@@ -15,166 +15,230 @@ from .protocol_freeze import (
 )
 from .ml_runtime import configure_runtime, initialize_model_cpu_then_mps, build_frozen_adam
 
-@dataclass
-class DerivedCache:
-    root_identity: str
-    byte_offset: int
-    byte_length: int
-    partition: str
-    source_pair_count: int
-    target_evaluable_pair_count: int
+BOUND_FILES = [
+    "src/chessheat/cp_representation_efficiency.py",
+    "scripts/run_cp_representation_efficiency.py",
+    "src/chessheat/protocol_freeze.py",
+    "src/chessheat/ml_runtime.py",
+    "artifacts/research/cp_representation_efficiency_protocol_v7.json",
+    "artifacts/research/ml_runtime_pin_v3.json",
+    "artifacts/research/ml_runtime_package_lock_v3.json",
+    "artifacts/research/ml_runtime_code_lock_v3.json",
+    "requirements/ml-runtime-v3.txt",
+    "artifacts/research/cp_target_labels_2026_07/cp_target_label_derivation_seal_v2.json",
+    "artifacts/research/target_label_derivation_runtime_pin_v1.json",
+    "requirements/target-label-runtime-v1.txt"
+]
 
-def check_execution_gates():
-    sha = os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA")
-    if not sha or len(sha) != 40 or not all(c in "0123456789abcdef" for c in sha):
-        raise ValueError(f"Invalid CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA: {sha}")
-
-def authenticate_actual_files():
-    # Future preflight validation against exact known real SHAs and identities
-    expected = {
-        "protocol_v7_sha": "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef",
-        "label_seal_v2_sha": "2e4735f40124f4eb7017ff816a4ea55e9f72ac559236a6077a0104273b1ab9c4",
-        "runtime_v3_identity": "CHESSHEAT_ML_RUNTIME_V3",
-        "evidence_audit_commit": "2f7560a38427754404c6f1ee6115db950d18815c",
-        "evidence_audit_supplement": "87e1edad72d2899d0bc7a05d11d9601d60b7cba3",
-    }
-    
-    # Read files in real life here and compare hashes
-    # To avoid real filesystem IO during synthetic test, we simply return True if no exceptions are raised.
-    return True
-
-
-class LearnerRecord:
-    def __init__(self, p_tensor, side_tensor, spatial_map, label):
-        self._p_tensor = p_tensor
-        self._side_tensor = side_tensor
-        self._spatial_map = spatial_map
-        self._label = label
+def verify_approved_sha_gate(approved_sha: str, repo_root: str):
+    if not isinstance(approved_sha, str) or not re.match(r"^[0-9a-f]{40}$", approved_sha):
+        raise ValueError("SHA must be exactly 40 lowercase hexadecimal characters.")
         
-    @property
-    def p_tensor(self):
-        return self._p_tensor
+    actual_env = os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA")
+    if actual_env != approved_sha:
+        raise ValueError("Approved SHA environment variable mismatch.")
         
-    @property
-    def side_tensor(self):
-        return self._side_tensor
+    try:
+        typ = subprocess.check_output(["git", "cat-file", "-t", approved_sha], cwd=repo_root, stderr=subprocess.STDOUT).decode().strip()
+        if typ != "commit":
+            raise ValueError(f"Approved SHA must be a commit, got {typ}")
+    except subprocess.CalledProcessError:
+        raise ValueError("Nonexistent SHA.")
         
-    @property
-    def spatial_map(self):
-        return self._spatial_map
+    try:
+        subprocess.check_call(["git", "merge-base", "--is-ancestor", approved_sha, "HEAD"], cwd=repo_root, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError:
+        raise ValueError("Approved SHA is not an ancestor of HEAD.")
         
-    @property
-    def label(self):
-        return self._label
-    
-    @label.setter
-    def label(self, value):
-        raise AttributeError("Label is read-only")
+    status = subprocess.check_output(["git", "status", "--porcelain"] + BOUND_FILES, cwd=repo_root, stderr=subprocess.STDOUT).decode().strip()
+    if status:
+        raise ValueError("Staged or unstaged drift in bound files.")
 
-def _build_model(torch):
-    import torch.nn as nn
-    class SimpleMLP(nn.Module):
-        def __init__(self):
-            super().__init__()
-            # p_tensor (13 * 64) + spatial_map (64) = 896
-            # side_tensor (270)
-            self.fc1 = nn.Linear(1486, 3)
-            
-        def forward(self, x_spatial, x_side):
-            x = torch.cat([x_spatial, x_side], dim=1)
-            return self.fc1(x)
-    return SimpleMLP()
+def check_execution_gates(approved_sha: str = None, repo_root: str = "."):
+    if approved_sha is None:
+        approved_sha = os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA", "")
+    verify_approved_sha_gate(approved_sha, repo_root)
+    if os.environ.get("CHESSHEAT_REAL_TRAINING_AUTHORIZED") != "1":
+        raise ValueError("Real training not authorized")
 
 def check_analysis_gate():
-    if not os.environ.get("CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED"):
-        raise ValueError("CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED missing")
+    if os.environ.get("CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED") != "1":
+        raise ValueError("Scientific analysis not authorized")
 
-def get_canonical_state_digest(model):
-    import torch
-    import io
-    buffer = io.BytesIO()
-    torch.save(model.state_dict(), buffer)
-    return hashlib.sha256(buffer.getvalue()).hexdigest()
+def _build_model(torch):
+    nn = torch.nn
+    class RepNet(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.spatial = nn.Sequential(
+                nn.Conv2d(19, 64, kernel_size=3, stride=1, padding=1, bias=True),
+                nn.ReLU(),
+                nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, bias=True),
+                nn.ReLU(),
+                nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, bias=True),
+                nn.ReLU(),
+                nn.AdaptiveAvgPool2d((1, 1)),
+                nn.Flatten()
+            )
+            self.side = nn.Sequential(
+                nn.Linear(270, 128, bias=True),
+                nn.ReLU()
+            )
+            self.combined = nn.Sequential(
+                nn.Linear(192, 128, bias=True),
+                nn.ReLU(),
+                nn.Linear(128, 3, bias=True)
+            )
+            
+        def forward(self, x_spatial, x_side):
+            s = self.spatial(x_spatial)
+            c = self.side(x_side)
+            return self.combined(torch.cat([s, c], dim=1))
+    return RepNet()
 
-def construct_learner_records(root: Dict, condition: str) -> List[LearnerRecord]:
-    import torch
-    records = []
+def get_epoch_order(seed: int, epoch: int, root_ids: List[str]) -> List[str]:
+    def sort_key(rid: str):
+        digest = hashlib.sha256(f"CHESSHEAT_MINIBATCH_V3|{seed}|{epoch}|{rid}".encode("utf-8")).hexdigest()
+        return (digest, rid)
+    return sorted(root_ids, key=sort_key)
+
+def get_canonical_state_digest(model) -> str:
+    sd = model.state_dict()
+    h = hashlib.sha256()
+    h.update(b"CHESSHEAT_MODEL_STATE_V2\n")
+    for k in sorted(sd.keys()):
+        t = sd[k].cpu().contiguous()
+        name_b = len(k).to_bytes(4, 'little') + k.encode("utf-8")
+        dtype_b = str(t.dtype).encode("utf-8")
+        shape_b = str(list(t.shape)).encode("utf-8")
+        h.update(name_b + b"\n" + dtype_b + b"\n" + shape_b + b"\n")
+        h.update(bytes(t.untyped_storage().tolist()))
+    return h.hexdigest()
+
+@dataclass(frozen=True)
+class LearnerRecord:
+    p_tensor: Any
+    side_tensor: Any
+    spatial_map: Any
+    label: int
+
+class DerivedCache:
+    def __init__(self):
+        self.roots = {}
+    def put(self, rid, data):
+        self.roots[rid] = data
+    def get(self, rid):
+        return self.roots.get(rid)
+
+def construct_learner_records(root_record: Dict, condition: str) -> List[LearnerRecord]:
+    if root_record["schema"] != "CP_TARGET_PAIR_LABEL_ROOT_V6": raise ValueError("schema")
+    if root_record["protocol_id"] != "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7": raise ValueError("protocol_id")
+    if root_record["partition"] not in {"TRAIN", "VALIDATION", "TEST"}: raise ValueError("partition")
+    rid = root_record.get("root_identity")
+    if not rid: raise ValueError("root_identity")
+    pairs = root_record["pairs"]
+    if len(pairs) != root_record["source_pair_count"]: raise ValueError("pair count")
     
-    if root.get("schema") != "CP_TARGET_PAIR_LABEL_ROOT_V6":
-        raise ValueError("Invalid root schema")
+    eval_count = sum(1 for p in pairs if p.get("target_label") is not None)
+    if eval_count != root_record["target_evaluable_pair_count"]: raise ValueError("Eval count mismatch")
+    
+    p = encode_position(root_record["sufficient_position"])
+    records = []
+    for pair in pairs:
+        m1, m2 = pair["m1_uci"], pair["m2_uci"]
+        if m1 >= m2: raise ValueError("m1_uci must be strictly less than m2_uci")
         
-    sp = root["sufficient_position"]
-    side = sp["side_to_move"]
-    if side not in ["w", "b", "white", "black"]:
-        raise ValueError("side_to_move must be w or b (or white/black)")
+        expected_pair_id = hashlib.sha256(f"CHESSHEAT_TARGET_PAIR_V1|{rid}|{m1}|{m2}".encode('utf-8')).hexdigest()
+        if str(pair["pair_id"]) != expected_pair_id: raise ValueError("Invalid pair_id")
         
-    for pair in root.get("pairs", []):
         if pair.get("target_label") is None:
+            if "target_failure_reason" not in pair:
+                raise ValueError("target_failure_reason missing for null target_label")
             continue
             
-        m1 = pair["m1_uci"]
-        m2 = pair["m2_uci"]
-        if not m1 < m2:
-            raise ValueError("m1_uci must be strictly less than m2_uci")
+        pf = SourcePairFeatures(pair["m1_uci"], pair["source_cp_m1"], 
+                                pair["m2_uci"], pair["source_cp_m2"])
+                                
+        if "d_X" in pair and pair["d_X"] != pf.d_x:
+            raise ValueError("d_X consistency failed")
+        if "a_X" in pair and pair["a_X"] != pf.a_x:
+            raise ValueError("a_X consistency failed")
             
-        pid = pair["pair_id"]
-        expected_pid = hashlib.sha256(f"CHESSHEAT_TARGET_PAIR_V1|{root['root_identity']}|{m1}|{m2}".encode('utf-8')).hexdigest()
-        if pid != expected_pid:
-            raise ValueError(f"Pair id mismatch. Expected {expected_pid}, got {pid}")
-            
-        label_str = pair["target_label"]
-        if label_str == "FIRST_BETTER":
-            lbl = 0
-        elif label_str == "EQUAL":
-            lbl = 1
-        elif label_str == "SECOND_BETTER":
-            lbl = 2
-        else:
-            raise ValueError(f"Invalid label {label_str}")
-            
-        pf = SourcePairFeatures(m1, pair["source_cp_m1"], m2, pair["source_cp_m2"])
-        p_tensor = encode_position(sp)
-        side_tensor = encode_side_information(pf)
+        side = encode_side_information(pf)
         
         if condition == "mu_D":
-            spatial_map = build_m_d(pf)
+            m = build_m_d(pf)
         elif condition == "mu_T":
-            spatial_map = build_m_t(pf)
+            m = build_m_t(pf)
         elif condition == "B_daS":
-            spatial_map = build_m_zero()
+            m = build_m_zero()
         elif condition == "B_perm":
-            spatial_map = build_m_perm(pf)
+            m = build_m_perm(pf)
         else:
             raise ValueError(f"Unknown condition {condition}")
             
-        records.append(LearnerRecord(p_tensor, side_tensor, spatial_map, lbl))
-        
+        label = {"FIRST_BETTER": 0, "EQUAL": 1, "SECOND_BETTER": 2}[pair["target_label"]]
+        records.append(LearnerRecord(p, side, m, label))
     return records
 
-def build_root_tensors(torch, records, device):
-    x_spatial = torch.stack([torch.tensor(r.p_tensor.values + r.spatial_map.values, dtype=torch.float32) for r in records]).to(device)
-    x_side = torch.stack([torch.tensor(r.side_tensor.values, dtype=torch.float32) for r in records]).to(device)
-    y = torch.tensor([r.label for r in records], dtype=torch.long).to(device)
+def read_and_validate_roots(records: List[Dict]) -> List[Dict]:
+    seen_roots = set()
+    for r in records:
+        if r.get("schema") != "CP_TARGET_PAIR_LABEL_ROOT_V6":
+            raise ValueError(f"Invalid schema: {r.get('schema')}")
+        for field in ["protocol_id", "partition", "root_identity", "source_pair_count", "target_evaluable_pair_count", "sufficient_position", "pairs"]:
+            if field not in r:
+                raise ValueError(f"Missing required field: {field}")
+        
+        if r["root_identity"] in seen_roots:
+            raise ValueError("Duplicate roots")
+        seen_roots.add(r["root_identity"])
+                
+        last_m = None
+        for pair in r["pairs"]:
+            m1, m2 = pair["m1_uci"], pair["m2_uci"]
+            if m1 >= m2:
+                raise ValueError("m1_uci must be strictly less than m2_uci")
+            if last_m is not None and (m1, m2) <= last_m:
+                raise ValueError("Pairs must be strictly increasing")
+            last_m = (m1, m2)
+            
+            if pair.get("target_label") is None and "target_failure_reason" not in pair:
+                raise ValueError("Null target label requires exact failure reason.")
+    return records
+
+def build_root_tensors(torch, records: List[LearnerRecord], device):
+    if not records:
+        return None
+    spatial_list = []
+    side_list = []
+    labels = []
+    for r in records:
+        p_t = torch.tensor(r.p_tensor.values, dtype=torch.float32).view(18, 8, 8)
+        m_t = torch.tensor(r.spatial_map.values, dtype=torch.float32).view(1, 8, 8)
+        spatial = torch.cat([p_t, m_t], dim=0)
+        spatial_list.append(spatial)
+        
+        side_t = torch.tensor(r.side_tensor.values, dtype=torch.float32)
+        side_list.append(side_t)
+        labels.append(r.label)
+        
+    x_spatial = torch.stack(spatial_list).to(device)
+    x_side = torch.stack(side_list).to(device)
+    y = torch.tensor(labels, dtype=torch.long).to(device)
     return x_spatial, x_side, y
 
-def get_epoch_order(seed, epoch, root_ids):
-    import random
-    rng = random.Random(seed + epoch)
-    shuffled = list(root_ids)
-    rng.shuffle(shuffled)
-    return shuffled
-
-def evaluate_roots(model, root_records_tensors, root_ids, torch):
+def evaluate_roots(model, root_records_tensors: Dict[str, Any], root_ids: List[str], torch):
     model.eval()
-    loss_fn = torch.nn.CrossEntropyLoss(reduction='mean')
     root_nlls = {}
+    loss_fn = torch.nn.CrossEntropyLoss(reduction='none')
     with torch.no_grad():
         for rid in root_ids:
             if rid not in root_records_tensors:
                 continue
             x_spatial, x_side, y = root_records_tensors[rid]
             logits = model(x_spatial, x_side)
-            loss = loss_fn(logits, y)
+            loss = loss_fn(logits, y).mean()
             root_nlls[rid] = loss.item()
     return root_nlls
 
@@ -195,15 +259,26 @@ def run_training_job(
     valid_budgets = {250, 500, 1000, 2000, 4000, 8000, 16000, 20000}
     if nominal_budget not in valid_budgets:
         raise ValueError("Invalid budget")
-    
+    if len(training_root_records) != nominal_budget:
+        raise ValueError("Nominal root count mismatch")
+        
+    # verify budget selection matches canonical_budget_order prefix
+    sorted_recs = sorted(training_root_records, key=lambda x: canonical_budget_order(x["root_identity"]))
+    if [r["root_identity"] for r in training_root_records] != [r["root_identity"] for r in sorted_recs][:nominal_budget]:
+        raise ValueError("Invalid training roots prefix")
+
+        
     ctx = configure_runtime(seed)
     torch = ctx.torch
     device = ctx.device
     
-    torch.manual_seed(seed)
     model = initialize_model_cpu_then_mps(_build_model, ctx)
     optimizer = build_frozen_adam(model, torch)
-    loss_fn = torch.nn.CrossEntropyLoss(reduction='mean')
+    loss_fn = torch.nn.CrossEntropyLoss(reduction='none')
+    
+    training_root_records = read_and_validate_roots(training_root_records)
+    validation_root_records = read_and_validate_roots(validation_root_records)
+    test_root_records = read_and_validate_roots(test_root_records)
     
     effective_train_roots = {}
     for r in training_root_records:
@@ -214,19 +289,21 @@ def run_training_job(
     val_roots = {}
     for r in validation_root_records:
         recs = construct_learner_records(r, condition)
-        if recs:
-            val_roots[r["root_identity"]] = build_root_tensors(torch, recs, device)
+        if not recs:
+            raise ValueError("Fail if 0-evaluable roots in val/test")
+        val_roots[r["root_identity"]] = build_root_tensors(torch, recs, device)
             
     test_roots = {}
     for r in test_root_records:
         recs = construct_learner_records(r, condition)
-        if recs:
-            test_roots[r["root_identity"]] = build_root_tensors(torch, recs, device)
+        if not recs:
+            raise ValueError("Fail if 0-evaluable roots in val/test")
+        test_roots[r["root_identity"]] = build_root_tensors(torch, recs, device)
 
-    if not val_roots and validation_root_records:
-        raise ValueError("Validation population cannot be empty if validation records provided.")
+    if not val_roots:
+        raise ValueError("Validation population cannot be empty.")
         
-    best_val_nll = float("inf")
+    best_val_nll = float('inf')
     best_epoch = -1
     best_state_digest = None
     best_state_dict = None
@@ -246,15 +323,15 @@ def run_training_job(
             batch_rids = epoch_root_ids[i:i+64]
             optimizer.zero_grad()
             B = len(batch_rids)
+            total_loss = 0
             for rid in batch_rids:
                 x_spatial, x_side, y = effective_train_roots[rid]
                 logits = model(x_spatial, x_side)
-                root_loss = loss_fn(logits, y)
-                (root_loss / B).backward()
-            optimizer.step()
-            
-        if not val_roots:
-            break
+                root_loss = loss_fn(logits, y).mean()
+                total_loss += root_loss
+            if B > 0:
+                (total_loss / B).backward()
+                optimizer.step()
             
         val_nlls = evaluate_roots(model, val_roots, val_root_ids, torch)
         val_loss = sum(val_nlls.values()) / len(val_nlls)
@@ -275,22 +352,19 @@ def run_training_job(
         if non_improvement >= patience:
             break
             
-    if best_state_dict:
-        model.load_state_dict(best_state_dict)
+    model.load_state_dict(best_state_dict)
     
     test_root_ids = sorted(list(test_roots.keys()))
     test_nlls = evaluate_roots(model, test_roots, test_root_ids, torch)
-    if test_roots:
-        test_eval_count = 1
+    test_eval_count += 1
     
     return {
-        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V4",
+        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V2",
         "condition": condition,
         "nominal_budget": nominal_budget,
         "nominal_root_count": len(training_root_records),
         "effective_training_root_count": len(effective_root_ids),
         "seed": seed,
-        "approved_implementation_sha": os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA"),
         "best_epoch": best_epoch,
         "best_validation_root_nll": best_val_nll,
         "epochs_completed": epoch + 1,
@@ -337,33 +411,23 @@ def run_scientific_analysis(worker_results: List[Dict]):
     for c, budgets in mean_nlls.items():
         utilities[c] = {}
         for b, root_nlls in budgets.items():
-            if root_nlls:
-                avg_test_nll = sum(root_nlls.values()) / len(root_nlls)
-                utilities[c][b] = -avg_test_nll
-            else:
-                utilities[c][b] = 0
+            avg_test_nll = sum(root_nlls.values()) / len(root_nlls)
+            utilities[c][b] = -avg_test_nll
             
     budgets_ordered = [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
     aulcs = {}
     for c, u in utilities.items():
-        utils_ordered = [u.get(b, 0) for b in budgets_ordered]
+        utils_ordered = [u[b] for b in budgets_ordered]
         aulcs[c] = compute_aulc(budgets_ordered, utils_ordered)
         
-    test_root_ids = list(mean_nlls.get("mu_D", {}).get(250, {}).keys())
-    if not test_root_ids:
-        test_root_ids = []
-    ci_results = full_bootstrap_procedure(test_root_ids, mean_nlls) if test_root_ids else {"Delta_DT": {"lower":0, "upper":0}, "Delta_D0": {"lower":0, "upper":0}, "Delta_T0": {"lower":0, "upper":0}}
+    test_root_ids = list(mean_nlls["mu_D"][250].keys())
+    ci_results = full_bootstrap_procedure(test_root_ids, mean_nlls)
     
-    dt_ci = ci_results["Delta_DT"]
-    d0_ci = ci_results["Delta_D0"]
-    t0_ci = ci_results["Delta_T0"]
+    dt_ci = (ci_results["Delta_DT"]["lcb"], ci_results["Delta_DT"]["ucb"])
+    d0_ci = (ci_results["Delta_D0"]["lcb"], ci_results["Delta_D0"]["ucb"])
+    t0_ci = (ci_results["Delta_T0"]["lcb"], ci_results["Delta_T0"]["ucb"])
     
-    outcome = classify_outcome(
-        (dt_ci["lower"], dt_ci["upper"]),
-        (d0_ci["lower"], d0_ci["upper"]),
-        (t0_ci["lower"], t0_ci["upper"]),
-        True
-    )
+    outcome = classify_outcome(dt_ci, d0_ci, t0_ci, True)
     
     return {
         "AULC_D": aulcs.get("mu_D"),
