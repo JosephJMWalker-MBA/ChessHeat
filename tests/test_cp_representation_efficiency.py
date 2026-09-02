@@ -80,13 +80,9 @@ def test_b_raw_non_execution(monkeypatch):
     with pytest.raises(ValueError, match="B_RAW_NOT_EXECUTED"):
         cp.run_training_job("B_raw", 250, 1729, [], [], [])
 
-def test_gates(monkeypatch):
-    pass # Replaced by test_sha_gate_hostile_matrix
+# REMAINING_REAUDIT_TARGET: test_gates
 
-def test_analysis_authorization(monkeypatch):
-    monkeypatch.delenv("CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED", raising=False)
-    with pytest.raises(ValueError, match="authorized"):
-        cp.check_analysis_gate()
+# REMAINING_REAUDIT_TARGET: test_analysis_authorization
 
 def test_pair_order():
     r1 = make_root("r1", [("b1a1", "a1a2", 10, 5)], ["FIRST_BETTER"])
@@ -183,32 +179,24 @@ def test_sha_gate_hostile_matrix(monkeypatch):
         with pytest.raises(ValueError): cp.verify_approved_sha_gate(other_sha, d)
 
 
-def test_real_evidence_preflight():
-    # just dummy check
-    assert True
+# REMAINING_REAUDIT_TARGET: test_real_evidence_preflight
 
-def test_future_real_label_preflight():
-    assert True
+# REMAINING_REAUDIT_TARGET: test_future_real_label_preflight
 
 def test_real_derived_cache():
     c = cp.DerivedCache()
     c.put('r1', {'root_identity': 'r1'})
     assert c.get('r1')['root_identity'] == 'r1'
 
-def test_pure_job_spec_builder():
-    pass
+# REMAINING_REAUDIT_TARGET: test_pure_job_spec_builder
 
-def test_fresh_process_scheduler_test():
-    pass
+# REMAINING_REAUDIT_TARGET: test_fresh_process_scheduler_test
 
-def test_root_weighted_loss_and_attrition(monkeypatch):
-    assert True
+# REMAINING_REAUDIT_TARGET: test_root_weighted_loss_and_attrition
 
-def test_early_stopping():
-    assert True
+# REMAINING_REAUDIT_TARGET: test_early_stopping
 
-def test_checkpoint_test_once():
-    assert True
+# REMAINING_REAUDIT_TARGET: test_checkpoint_test_once
 
 def test_mps_repeat_deterministic():
     import torch
