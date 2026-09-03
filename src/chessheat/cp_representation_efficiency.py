@@ -488,7 +488,7 @@ def run_training_job(
     test_eval_count += 1
     
     return {
-        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V13",
+        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V14",
         "condition": condition,
         "nominal_budget": nominal_budget,
         "seed": seed,
@@ -738,7 +738,7 @@ def _process_wrapper(spec, worker_fn, q):
     except Exception as e:
         q.put((False, e))
 
-def run_job_specs(job_specs: List[JobSpec], worker_fn):
+def run_job_specs(job_specs: List[JobSpec], worker_fn, watchdog_timeout: float = 7200.0):
     import multiprocessing
     import queue
     results = []
@@ -748,6 +748,8 @@ def run_job_specs(job_specs: List[JobSpec], worker_fn):
         p = multiprocessing.Process(target=_process_wrapper, args=(spec, worker_fn, q))
         p.start()
         
+        import time
+        start_t = time.monotonic()
         res_tuple = None
         while True:
             try:
@@ -761,6 +763,12 @@ def run_job_specs(job_specs: List[JobSpec], worker_fn):
                         break
                     except queue.Empty:
                         break
+                
+                if time.monotonic() - start_t > watchdog_timeout:
+                    p.terminate()
+                    p.join()
+                    q.close()
+                    raise RuntimeError("Worker watchdog timeout exceeded")
         
         p.join()
         
@@ -816,7 +824,7 @@ def run_downstream_worker(spec: JobSpec):
     )
     
     # Binding and Validating Result
-    if result.get("schema") not in ["CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V12", "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V13"]:
+    if result.get("schema") != "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V14":
         raise ValueError("Invalid schema returned by training job")
     if result.get("condition") != spec.condition: raise ValueError("Condition mismatch")
     if result.get("nominal_budget") != spec.nominal_budget: raise ValueError("Budget mismatch")
@@ -864,7 +872,7 @@ def validate_completed_worker_results(job_specs: List[JobSpec], results: List[Di
     for spec in job_specs:
         res = res_dict[(spec.condition, spec.nominal_budget, spec.seed)]
         
-        if res["schema"] not in ["CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V12", "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V13"]:
+        if res.get("schema") != "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V14":
             raise ValueError("Schema mismatch in parent validation")
             
         if res["approved_implementation_sha"] != spec.approved_implementation_sha:
