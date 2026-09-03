@@ -1,0 +1,62 @@
+{
+  "schema": "CP_TARGET_EXECUTION_ARTIFACT_RECOVERY_SUPPLEMENT_1",
+  "original_recovery_audit_sha": "4291e6b0fa2cbf7b34aaadfa84b16aa4fdb4cf29",
+  "protection_commit_sha": "0743b4e32a4d90d5e5412e94e12e82256f59fb14",
+  "incident_metadata_correction": {
+    "false_utc_deletion_timestamp": "2026-09-02T13:17:37Z",
+    "bounded_transcript_event_time": "approx 2026-09-02T17:19Z"
+  },
+  "git_clean_causal_classification": "HIGH_CONFIDENCE_PROBABLE_CAUSE: UNTRACKED_UNIGNORED_TARGET_ARTIFACTS_REMOVED_DURING_GIT_CLEAN_FD",
+  "manifest_identities": {
+    "compressed_manifest_file_sha": "a4fd60e0fe3a54bd91435a7f2653cc3b7a4091710581d104a2efe302def402b7",
+    "scientific_decompressed_canonical_manifest_sha": "5a013e64265820b65d1d3687fcee98aa607ab41470294d11df7b2f803c8e063d"
+  },
+  "reconstruction_environment": {
+    "python_executable": ".venv/bin/python3",
+    "python_executable_sha256": "542c879fdc2cfe0be223e4729082bac529780d90c6d811c853de852765b35a35",
+    "python_version": "3.13.5",
+    "python_chess_version": "1.11.2",
+    "pydantic_version": "2.13.4",
+    "zstandard_version": "0.25.0",
+    "stockfish_resolved_path": "/opt/homebrew/bin/stockfish",
+    "stockfish_sha": "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374",
+    "macos_version_build": "26.6.2 build 25G83",
+    "hardware_model": "Mac16,10"
+  },
+  "determinism_probe": {
+    "probe_A_SHA": "080655cb056d1a41eedd3a3524ae3431acafd15fbd7bed36c2121561f2aaaf13",
+    "probe_B_SHA": "080655cb056d1a41eedd3a3524ae3431acafd15fbd7bed36c2121561f2aaaf13",
+    "status": "EXACT_MATCH"
+  },
+  "target_reconstruction": {
+    "attempt_count": 1,
+    "start_time_utc": "2026-09-03T16:44:29Z",
+    "end_time_utc": "2026-09-03T16:46:46Z",
+    "candidate_path": "artifacts/research/cp_target_reconstruction_2026_09/attempt_1/cp_target_root_results_v2.jsonl",
+    "SHA256": "4a7e01366dc58ad589c507b997bdca90da40391bb7bf0427f246196ac965dfe1",
+    "bytes": 337585,
+    "records": 16,
+    "statuses": {
+      "SUCCESS": 16,
+      "FAILURE": 0
+    },
+    "epoch_maximum": 1,
+    "verdict": "AUTHORITATIVE_TARGET_RAW_EXACT_RECONSTRUCTION_FAILED"
+  },
+  "label_reconstruction": {
+    "compressed_SHA256": null,
+    "compressed_bytes": null,
+    "decompressed_SHA256": null,
+    "decompressed_bytes": null,
+    "root_counts": null,
+    "pair_counts": null,
+    "verdict": "NOT_ATTEMPTED_DUE_TO_TARGET_MISMATCH"
+  },
+  "uncompressed_execution_cache_SHA256": null,
+  "uncompressed_execution_cache_bytes": null,
+  "archive_paths": [],
+  "archive_hashes": [],
+  "real_training_count": 0,
+  "scientific_analysis_performed": false,
+  "verdict": "AUTHORITATIVE_TARGET_RAW_EXACT_RECONSTRUCTION_FAILED"
+}
