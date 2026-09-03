@@ -509,7 +509,7 @@ def run_training_job(
     }
 
 def run_scientific_analysis(worker_results: List[Dict]):
-    check_analysis_gate()
+    check_analysis_authorization()
     
     aggregated_data = {}
     for res in worker_results:
