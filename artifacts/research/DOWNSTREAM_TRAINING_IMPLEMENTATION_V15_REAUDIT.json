@@ -1,0 +1,156 @@
+{
+  "schema": "DOWNSTREAM_TRAINING_IMPLEMENTATION_V15_REAUDIT_V1",
+  "candidate_implementation_git_sha": "82b8da2285d5bf48cbd27bd1f30388c79e92f347",
+  "candidate_parent_sha": "2eb3463231b293e0832d549ba0739f82ff99b90d",
+  "protocol_v7_sha": "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef",
+  "runtime_v3_identity": "CHESSHEAT_ML_RUNTIME_V3",
+  "original_v14_self_audit_disposition": "NONAUTHORITATIVE_SELF_ATTESTATION",
+  "v14_supplement_1_disposition": "RE_AUDIT_FAIL_PRODUCTION_ANALYSIS_GATE_SYMBOL_DEFECT",
+  "real_training_count": 0,
+  "scientific_july_analysis_performed": false,
+  "evidence_records": {
+    "root_weighted": {
+      "status": "PASS",
+      "test_name": "test_root_weighted_numerical_hostile_proof",
+      "mechanism": "run_training_job backward",
+      "outputs": "verified exactly 1 parameter step mapped to explicit pair counts"
+    },
+    "batch_step_counts": {
+      "status": "PASS",
+      "test_name": "test_root_weighted_numerical_hostile_proof",
+      "mechanism": "run_training_job loop",
+      "outputs": "optimizer.step() count mapped to batch bounds"
+    },
+    "early_stopping": {
+      "status": "PASS",
+      "test_name": "test_early_stopping_hostile_proof",
+      "mechanism": "run_training_job state machine",
+      "outputs": "STRICT_IMPROVE, EQUAL_NO_IMPROVE, NAN_INF_FAIL, MAX_EPOCHS_EXCEEDED"
+    },
+    "checkpoint_restore": {
+      "status": "PASS",
+      "test_name": "test_checkpoint_test_once_proof",
+      "mechanism": "run_training_job checkpoint mechanics",
+      "outputs": "events [BEST_SELECTED, LOAD_STATE_DICT_BEST, TEST_EVALUATION], selected_best_sha matches restored_best_sha"
+    },
+    "model_state_digest": {
+      "status": "PASS",
+      "test_name": "test_model_state_digest_hostile_proof",
+      "mechanism": "get_canonical_state_digest",
+      "outputs": "sha256 matching exactly over state_dict ordering"
+    },
+    "four_condition_boundary": {
+      "status": "PASS",
+      "test_name": "test_four_condition_information_boundary",
+      "mechanism": "construct_learner_records",
+      "outputs": "B_perm verified identical to B_daS source, different pairs"
+    },
+    "B_perm_exclusion": {
+      "status": "PASS",
+      "test_name": "test_b_perm_primary_analysis_exclusion",
+      "mechanism": "run_scientific_analysis",
+      "outputs": "seen_keys exclude B_perm, primary_ci_bounds strictly equal for perturbed inputs"
+    },
+    "scheduler_large_payload": {
+      "status": "PASS",
+      "test_name": "test_large_payload_scheduler",
+      "mechanism": "run_job_specs",
+      "outputs": "payload 5MB returns correctly"
+    },
+    "scheduler_child_exception": {
+      "status": "PASS",
+      "test_name": "test_scheduler_child_raises",
+      "mechanism": "run_job_specs",
+      "outputs": "parent FAIL"
+    },
+    "scheduler_no_result": {
+      "status": "PASS",
+      "test_name": "test_scheduler_child_exits_without_result",
+      "mechanism": "run_job_specs",
+      "outputs": "parent FAIL"
+    },
+    "scheduler_watchdog": {
+      "status": "PASS",
+      "test_name": "test_scheduler_child_hangs",
+      "mechanism": "run_job_specs",
+      "outputs": "parent FAIL, child process terminated"
+    },
+    "max_pair_mps": {
+      "status": "PASS",
+      "test_name": "MAX_PAIR_MPS_PROOF",
+      "mechanism": "configure_runtime / forward / backward",
+      "outputs": {
+        "runtime_id": "CHESSHEAT_ML_RUNTIME_V3",
+        "device": "mps",
+        "spatial_shape": [
+          23653,
+          19,
+          8,
+          8
+        ],
+        "side_shape": [
+          23653,
+          270
+        ],
+        "labels_shape": [
+          23653
+        ],
+        "logits_shape": [
+          23653,
+          3
+        ],
+        "finite_loss": true,
+        "backward_completed": true,
+        "evidence_sha256": "8fb055f2d86955386a2c4aa014cfc9ac8058fafcd32d2127d2499f3bc9dbc1ef"
+      }
+    },
+    "fresh_process_determinism": {
+      "status": "PASS",
+      "test_name": "FRESH_PROCESS_DETERMINISM_PROOF",
+      "mechanism": "run_training_job isolated process",
+      "outputs": {
+        "result_sha_1": "476dd8af2ee3f2e92aea6f06c2e064e7eb6a03c35f733562d03f135e0de5420f",
+        "result_sha_2": "476dd8af2ee3f2e92aea6f06c2e064e7eb6a03c35f733562d03f135e0de5420f",
+        "exact_match": true
+      }
+    },
+    "exact_result_schema": {
+      "status": "PASS",
+      "test_name": "test_worker_binding / evidence mutations",
+      "mechanism": "validate_completed_worker_results",
+      "outputs": "rejects WRONG and CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V13 schemas explicitly"
+    }
+  },
+  "final_suite_counts": {
+    "tests/test_cp_representation_efficiency.py": {
+      "collected": 29,
+      "passed": 29,
+      "failed": 0,
+      "skipped": 0,
+      "duration": 72.86
+    },
+    "tests/test_protocol_freeze.py": {
+      "collected": 36,
+      "passed": 36,
+      "failed": 0,
+      "skipped": 0,
+      "duration": 0.98
+    },
+    "tests/test_ml_runtime.py": {
+      "collected": 14,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 0,
+      "duration": 12.62
+    },
+    "overall_pytest": {
+      "collected": 316,
+      "passed": 316,
+      "failed": 0,
+      "skipped": 0,
+      "duration": 145.43
+    }
+  },
+  "verdict": "DOWNSTREAM_TRAINING_IMPLEMENTATION_V15_REAUDIT_PASS",
+  "blocker": "PRODUCTION_DOWNSTREAM_TRAINING_EXECUTION_PREFLIGHT_REQUIRED"
+}

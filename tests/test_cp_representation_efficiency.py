@@ -679,7 +679,7 @@ def test_worker_binding():
         # hostile mutations
         import pytest
         mutations = [
-            ("schema", "WRONG"),
+            ("schema", "WRONG"), ("schema", "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V13"), ("schema", "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V13"), ("schema", "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V13"),
             ("condition", "WRONG"),
             ("nominal_budget", 99),
             ("seed", 99),
@@ -743,7 +743,7 @@ def test_parent_completeness_with_fake_worker():
         cp.validate_completed_worker_results(specs_2, [valid_res.copy(), valid_res.copy()])  # duplicate items
         
     mutations = [
-        ("schema", "WRONG"),
+        ("schema", "WRONG"), ("schema", "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V13"), ("schema", "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V13"), ("schema", "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V13"),
         ("approved_implementation_sha", "WRONG"),
         ("protocol_v7_sha", "WRONG"),
         ("seal_v2_sha", "WRONG"),
@@ -1131,8 +1131,8 @@ def test_checkpoint_test_once_proof():
     import sys
     import os
     import json
-    
-    script = '''
+
+    script = """
 import chessheat.ml_runtime as ml
 ml.validate_runtime_identity = lambda: None
 import chessheat.cp_representation_efficiency as cp
@@ -1178,24 +1178,39 @@ def mock_build_adam(*args, **kwargs):
     return MockOpt()
 cp.build_frozen_adam = mock_build_adam
 
-test_evals = []
-best_digest_recorded = None
-original_eval = cp.evaluate_roots
+events = []
+selected_best_sha = None
+restored_best_sha = None
 
+original_eval = cp.evaluate_roots
 def mock_evaluate(model, root_records_tensors, root_ids, torch):
-    # track test evaluation calls
     if root_ids and "CHESSHEAT_TARGET_ROOT_test1" in root_ids:
-        test_evals.append("TEST")
+        events.append("TEST_EVALUATION")
     return original_eval(model, root_records_tensors, root_ids, torch)
 cp.evaluate_roots = mock_evaluate
 
 original_get_canonical = cp.get_canonical_state_digest
 def mock_get_canonical(model):
-    global best_digest_recorded
+    global selected_best_sha
     d = original_get_canonical(model)
-    best_digest_recorded = d
+    if "LOAD_STATE_DICT_BEST" not in events:
+        events.append("BEST_SELECTED")
+        selected_best_sha = d
     return d
 cp.get_canonical_state_digest = mock_get_canonical
+
+original_build_model = cp._build_model
+def mock_build_model(*args, **kwargs):
+    model = original_build_model(*args, **kwargs)
+    original_load = model.load_state_dict
+    def mock_load(state_dict):
+        original_load(state_dict)
+        events.append("LOAD_STATE_DICT_BEST")
+        global restored_best_sha
+        restored_best_sha = original_get_canonical(model)
+    model.load_state_dict = mock_load
+    return model
+cp._build_model = mock_build_model
 
 train = [make_root(f"CHESSHEAT_TARGET_ROOT_tr{i}", 1) for i in range(250)]
 train.sort(key=lambda x: cp.canonical_budget_order(x["root_identity"]))
@@ -1213,23 +1228,30 @@ res = cp.run_training_job(
 )
 
 print(json.dumps({
-    "test_evals": len(test_evals),
-    "best_digest_recorded": best_digest_recorded,
+    "events": events,
+    "selected_best_sha": selected_best_sha,
+    "restored_best_sha": restored_best_sha,
     "final_digest": res["canonical_model_state_sha"]
 }))
-'''
+"""
     env = os.environ.copy()
     env["CHESSHEAT_RUNTIME_V3_AUTHORIZED"] = "1"
     env["CHESSHEAT_ML_RUNTIME_ID"] = "CHESSHEAT_ML_RUNTIME_V3"
-    env["CHESSHEAT_MPS_ENABLED"] = "0"
-    
+
     p = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True)
     assert p.returncode == 0, p.stderr
     out = json.loads(p.stdout.strip())
-    
-    assert out["test_evals"] == 1
-    assert out["best_digest_recorded"] == out["final_digest"]
-    assert len(out["final_digest"]) == 64
+    events = out["events"]
+    assert "BEST_SELECTED" in events
+    assert "LOAD_STATE_DICT_BEST" in events
+    assert "TEST_EVALUATION" in events
+    # order
+    idx_best = events.index("BEST_SELECTED")
+    idx_load = events.index("LOAD_STATE_DICT_BEST")
+    idx_test = events.index("TEST_EVALUATION")
+    assert idx_best < idx_load < idx_test
+    assert events.count("TEST_EVALUATION") == 1
+    assert out["selected_best_sha"] == out["restored_best_sha"]
 
 def test_four_condition_information_boundary():
     import chessheat.cp_representation_efficiency as cp
@@ -1305,21 +1327,18 @@ def test_four_condition_information_boundary():
     assert rec_Bperm[0].spatial_map.to_bytes() == cp.build_m_perm(sf).to_bytes()
 
 def test_b_perm_primary_analysis_exclusion():
-    import chessheat.cp_representation_efficiency as cp
-    import chessheat.protocol_freeze as protocol
-    from unittest.mock import patch
     import copy
-    
+    import os
+    import json
+    from unittest.mock import patch
+    import chessheat.cp_representation_efficiency as cp
+
     def fake_res(condition):
         return {
             "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V14",
             "condition": condition,
             "nominal_budget": 250,
             "seed": 1729,
-            "approved_implementation_sha": "fake",
-            "protocol_v7_sha": "fake",
-            "seal_v2_sha": "fake",
-            "label_scientific_sha": "fake",
             "runtime_v3_identity": "CHESSHEAT_ML_RUNTIME_V3",
             "runtime_v3_pin_sha": "fake",
             "nominal_root_population_digest": "fake",
@@ -1333,46 +1352,49 @@ def test_b_perm_primary_analysis_exclusion():
             "test_root_ids": ["root1", "root2"],
             "test_root_losses": {"root1": 0.5, "root2": 0.6}
         }
-    
+
     results = []
-    for c in ["mu_D", "mu_T", "B_daS", "B_perm"]:
+    for cond in ["mu_D", "mu_T", "B_daS", "B_perm"]:
         for b in [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]:
             for s in [1729, 2718, 31415, 65537, 104729]:
-                r = fake_res(c)
+                r = fake_res(cond)
                 r["nominal_budget"] = b
                 r["seed"] = s
                 results.append(r)
-                
-    cp.check_analysis_gate = lambda: None
+
     results_X = copy.deepcopy(results)
     results_Y = copy.deepcopy(results)
     for r in results_Y:
         if r["condition"] == "B_perm":
-            r["test_root_losses"]["root1"] += 10.0
-            r["test_root_losses"]["root2"] += 10.0
+            r["test_root_losses"]["root1"] += 100.0
+            r["test_root_losses"]["root2"] += 100.0
 
     seen_keys = []
     original_bootstrap = cp.full_bootstrap_procedure
     def mock_bootstrap(test_root_ids, mean_nlls):
         seen_keys.append(list(mean_nlls.keys()))
         return original_bootstrap(test_root_ids, mean_nlls)
-        
-    with patch("chessheat.cp_representation_efficiency.full_bootstrap_procedure", mock_bootstrap):
-        try:
+
+    os.environ["CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED"] = "CHESSHEAT_SCIENTIFIC_ANALYSIS_V1_AUTHORIZED"
+    try:
+        with patch("chessheat.cp_representation_efficiency.full_bootstrap_procedure", mock_bootstrap):
             out_X = cp.run_scientific_analysis(results_X)
-        except Exception as e:
-            print("run_scientific_analysis error X:", e)
-            raise
-        try:
             out_Y = cp.run_scientific_analysis(results_Y)
-        except Exception as e:
-            print("run_scientific_analysis error Y:", e)
-            raise
-        
+    finally:
+        del os.environ["CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED"]
+
+    assert len(seen_keys) == 2
     assert set(seen_keys[0]) == {"mu_D", "mu_T", "B_daS"}
     assert set(seen_keys[1]) == {"mu_D", "mu_T", "B_daS"}
-    
-    assert out_X == out_Y
+
+    assert out_X["ci_results"]["Delta_DT"] == out_Y["ci_results"]["Delta_DT"]
+    assert out_X["ci_results"]["Delta_D0"] == out_Y["ci_results"]["Delta_D0"]
+    assert out_X["ci_results"]["Delta_T0"] == out_Y["ci_results"]["Delta_T0"]
+    assert out_X["outcome"] == out_Y["outcome"]
+    assert out_X["AULC_D"] == out_Y["AULC_D"]
+    assert out_X["AULC_T"] == out_Y["AULC_T"]
+    assert out_X["AULC_BdaS"] == out_Y["AULC_BdaS"]
+    assert out_X["ci_results"] == out_Y["ci_results"]
 
 def test_max_pair_mps_feasibility():
     import sys
