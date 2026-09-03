@@ -10,3 +10,14 @@ data/external/
 # Acquisition artifacts (raw data)
 artifacts/research/cp_source_feasibility_2026_07/raw/
 artifacts/research/cp_source_feasibility_2026_07/checkpoints/
+
+# Protect scientific payload paths
+artifacts/research/cp_target_acquisition_2026_07/raw/
+artifacts/research/cp_target_labels_2026_07/*.jsonl
+artifacts/research/cp_target_labels_2026_07/*.jsonl.zst
+artifacts/research/cp_target_labels_2026_07/*.tmp
+artifacts/research/cp_target_reconstruction_2026_09/
+
+# NEVER run destructive `git clean` in this repository without first:
+# git clean -nd
+# and reviewing the output.
