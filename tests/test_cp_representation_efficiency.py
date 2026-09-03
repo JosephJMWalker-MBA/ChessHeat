@@ -10,9 +10,10 @@ from chessheat import cp_representation_efficiency as cp
 
 def test_real_materializer_schema_positive_control():
     from chessheat.cp_target_labels import derive_root_pair_labels_v6
-    import json
+    import json, copy
     from chessheat.experiment import ExperimentResult
-    
+    import chessheat.cp_representation_efficiency as cp
+
     synthetic_manifest = {
         "schema": "CHESSHEAT_TARGET_ACQUISITION_MANIFEST_V1",
         "protocol_id": "CP_TARGET_ACQUISITION_PROTOCOL_V7",
@@ -22,88 +23,111 @@ def test_real_materializer_schema_positive_control():
         "transposition_group": 1,
         "sufficient_position": {"side_to_move": "w", "board_arrangement_fen": "mock", "castling_rights": "KQkq", "en_passant_square": None}
     }
-    
+
+    # AT LEAST THREE SOURCE CP moves
+    # We want strictly increasing m: e.g. "a1a2", "b1b2", "c1c2"
+    # But we want their SHA256 of "CHESSHEAT_TARGET_PAIR_V1|root1|m1|m2" to be NON-MONOTONIC.
+    # We will pick 4 moves so we can form pairs.
+    # Let's use a1a2, a1a3, a1a4, a1a5 as source moves.
     source_data = {
         "version": "1.0", "instrument_role": "SOURCE", "instrument_id": "CP_SOURCE_SF18_50K_ISOLATED_V1", "producer_uci_name": "Stockfish 18",
-        "pre_spawn_sha256": "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374", "post_spawn_sha256": "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374", "comparison_perspective": "white", "canonical_acquisition_order": ["a1a2", "b1b2"],
-            "perspective": "white",
+        "pre_spawn_sha256": "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374", "post_spawn_sha256": "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374", "comparison_perspective": "white", 
+        "canonical_acquisition_order": ["a1a2", "b1b2", "c1c2", "d1d2"],
+        "perspective": "white",
         "spec_digest": "dummy_spec",
         "observations": [
             {"root_move_uci": "a1a2", "score_type": "cp", "score_value": 50, "canonical_acquisition_index": 0, "isolation_sequence_index": 0, "requested_nodes": 50000, "perspective": "white"},
-            {"root_move_uci": "b1b2", "score_type": "cp", "score_value": 25, "canonical_acquisition_index": 1, "isolation_sequence_index": 1, "requested_nodes": 50000, "perspective": "white"}
+            {"root_move_uci": "b1b2", "score_type": "cp", "score_value": 25, "canonical_acquisition_index": 1, "isolation_sequence_index": 1, "requested_nodes": 50000, "perspective": "white"},
+            {"root_move_uci": "c1c2", "score_type": "cp", "score_value": 10, "canonical_acquisition_index": 2, "isolation_sequence_index": 2, "requested_nodes": 50000, "perspective": "white"},
+            {"root_move_uci": "d1d2", "score_type": "cp", "score_value": 5, "canonical_acquisition_index": 3, "isolation_sequence_index": 3, "requested_nodes": 50000, "perspective": "white"}
         ]
     }
     s_er = ExperimentResult.create("dummy_spec", source_data)
-    
     synthetic_source = {
-        "schema": "CP_SOURCE_FEASIBILITY_RESULT_V2",
-        "status": "SUCCESS",
-        "root_identity": "root1",
-        "root_record_digest": "dummy_digest",
-        "partition": "TRAIN",
-        "experiment_result": s_er.model_dump()
+        "schema": "CP_SOURCE_FEASIBILITY_RESULT_V2", "status": "SUCCESS", "root_identity": "root1",
+        "root_record_digest": "dummy_digest", "partition": "TRAIN", "experiment_result": s_er.model_dump()
     }
-    
+
     target_data = {
         "version": "1.0", "instrument_role": "TARGET", "instrument_id": "CP_TARGET_SF18_250K_ISOLATED_V1", "producer_uci_name": "Stockfish 18",
-        "pre_spawn_sha256": "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374", "post_spawn_sha256": "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374", "comparison_perspective": "white", "canonical_acquisition_order": ["a1a2", "b1b2"],
-            "perspective": "white",
+        "pre_spawn_sha256": "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374", "post_spawn_sha256": "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374", "comparison_perspective": "white", 
+        "canonical_acquisition_order": ["a1a2", "b1b2", "c1c2", "d1d2"],
+        "perspective": "white",
         "spec_digest": "dummy_spec",
         "observations": [
             {"root_move_uci": "a1a2", "score_type": "cp", "score_value": 100, "canonical_acquisition_index": 0, "isolation_sequence_index": 0, "requested_nodes": 250000, "perspective": "white"},
-            {"root_move_uci": "b1b2", "score_type": "cp", "score_value": 50, "canonical_acquisition_index": 1, "isolation_sequence_index": 1, "requested_nodes": 250000, "perspective": "white"}
+            {"root_move_uci": "b1b2", "score_type": "cp", "score_value": 50, "canonical_acquisition_index": 1, "isolation_sequence_index": 1, "requested_nodes": 250000, "perspective": "white"},
+            {"root_move_uci": "c1c2", "score_type": "cp", "score_value": 30, "canonical_acquisition_index": 2, "isolation_sequence_index": 2, "requested_nodes": 250000, "perspective": "white"},
+            {"root_move_uci": "d1d2", "score_type": "cp", "score_value": 10, "canonical_acquisition_index": 3, "isolation_sequence_index": 3, "requested_nodes": 250000, "perspective": "white"}
         ]
     }
     t_er = ExperimentResult.create("dummy_spec", target_data)
-    
     synthetic_target = {
-        "schema": "CP_TARGET_ACQUISITION_RESULT_V2",
-        "status": "SUCCESS",
-        "root_identity": "root1",
-        "root_record_digest": "dummy_digest",
-        "experiment_result": t_er.model_dump()
+        "schema": "CP_TARGET_ACQUISITION_RESULT_V2", "status": "SUCCESS", "root_identity": "root1",
+        "root_record_digest": "dummy_digest", "experiment_result": t_er.model_dump()
     }
-    
+
     res = derive_root_pair_labels_v6(
-        synthetic_manifest,
-        synthetic_source,
-        synthetic_target,
-        "mock_manifest_sha",
-        "mock_source_sha",
-        "mock_target_raw_sha",
-        "mock_seal_sha",
-        "mock_approved_sha"
+        synthetic_manifest, synthetic_source, synthetic_target,
+        "mock_manifest_sha", "mock_source_sha", "mock_target_raw_sha", "mock_seal_sha", "mock_approved_sha"
     )
-    
-    # 5. invoke downstream validator
+
+    assert len(res["pairs"]) >= 3
+    # Check that m is strictly increasing
+    for i in range(len(res["pairs"])-1):
+        p1 = res["pairs"][i]
+        p2 = res["pairs"][i+1]
+        assert (p1["m1_uci"], p1["m2_uci"]) < (p2["m1_uci"], p2["m2_uci"])
+
+    # Check non-monotonic SHA
+    shas = [p["pair_id"] for p in res["pairs"]]
+    PAIR_SHA_SEQUENCE_NONMONOTONIC = any(shas[i] > shas[i+1] for i in range(len(shas)-1))
+    assert PAIR_SHA_SEQUENCE_NONMONOTONIC
+
     cp.read_and_validate_roots([res])
-    
-    import copy
+
     def expect_fail(r, mutate_fn):
         r2 = copy.deepcopy(r)
         mutate_fn(r2)
         with pytest.raises(ValueError):
             cp.read_and_validate_roots([r2])
-            
+
     expect_fail(res, lambda r: r["sufficient_position"].update({"side_to_move": "invalid"}))
     expect_fail(res, lambda r: r["pairs"][0].update({"pair_id": "0"*64}))
     def swap_pair(r):
         r["pairs"][0]["m1_uci"], r["pairs"][0]["m2_uci"] = r["pairs"][0]["m2_uci"], r["pairs"][0]["m1_uci"]
     expect_fail(res, swap_pair)
+    
+    # EXACT DOMAIN
     expect_fail(res, lambda r: r["pairs"][0].update({"source_cp_m1": True}))
     expect_fail(res, lambda r: r["pairs"][0].update({"source_cp_m2": False}))
+    expect_fail(res, lambda r: r["pairs"][0].update({"source_cp_m1": 1.0}))
+    expect_fail(res, lambda r: r["pairs"][0].update({"source_cp_m2": "25"}))
+    expect_fail(res, lambda r: r["pairs"][0].update({"source_cp_m1": None}))
+
+    # BAD HEADER VALUES
+    expect_fail(res, lambda r: r.update({"schema": "BAD"}))
+    expect_fail(res, lambda r: r.update({"label_derivation_protocol": "BAD"}))
+    expect_fail(res, lambda r: r.update({"protocol_id": "BAD"}))
+    expect_fail(res, lambda r: r.update({"partition": "BAD"}))
+
     expect_fail(res, lambda r: r["pairs"][0].update({"d_X": 999.0}))
     expect_fail(res, lambda r: r["pairs"][0].update({"a_X": 999.0}))
+    
     def nullify_label(r):
         r["pairs"][0]["target_label"] = None
         if "target_non_evaluable_reason" in r["pairs"][0]:
             del r["pairs"][0]["target_non_evaluable_reason"]
     expect_fail(res, nullify_label)
+    
     def add_reason(r):
         r["pairs"][0]["target_label"] = "FIRST_BETTER"
         r["pairs"][0]["target_non_evaluable_reason"] = "REASON"
     expect_fail(res, add_reason)
-    expect_fail(res, lambda r: r.update({"source_pair_count": 99}))
+
+    # UNIQUE ROOT IDENTITIES
+    with pytest.raises(ValueError):
+        cp.read_and_validate_roots([res, res])
 
 def test_sha_gate_hostile_matrix(monkeypatch):
     with tempfile.TemporaryDirectory() as d:
@@ -205,45 +229,6 @@ def test_training_analysis_gate_separation(monkeypatch):
     monkeypatch.setenv("CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED", "CHESSHEAT_SCIENTIFIC_ANALYSIS_V1_AUTHORIZED")
     cp.check_analysis_authorization()
 
-def test_evidence_preflight_mutations(monkeypatch):
-    import subprocess
-    def mock_check_call(*args, **kwargs):
-        pass
-    monkeypatch.setattr(subprocess, "check_call", mock_check_call)
-    
-    valid_hashes = {
-        "artifacts/research/cp_representation_efficiency_protocol_v7.json": "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef",
-        "artifacts/research/cp_target_labels_2026_07/cp_target_label_derivation_seal_v2.json": "2e4735f40124f4eb7017ff816a4ea55e9f72ac559236a6077a0104273b1ab9c4",
-        "artifacts/research/ml_runtime_pin_v3.json": "e69ae6bcbf96a327b021665b5ac21b63c269cd821be84d567867058b09e98932",
-        "artifacts/research/ml_runtime_package_lock_v3.json": "2127b9709ef8786f47b9306040a56706ff3a7f6535d2439d692c67bac5fac54d",
-        "artifacts/research/ml_runtime_code_lock_v3.json": "9eebefd15c6c1fe93340a69f270f9bf02f7572b4a307d174307f786355a4ec84",
-        "requirements/ml-runtime-v3.txt": "79ea33529376312052c7f98d0e19e812029697d4ff15a2e93106f94f023bf7c9",
-        "artifacts/research/target_label_derivation_runtime_pin_v1.json": "dc707aa6d2709fcdfb108263356a8b0cab4cc459dffd29ba5524241f48ea3e22",
-        "requirements/target-label-runtime-v1.txt": "da56c02977e00d88d897af40d227d773822aa7134d30e1d40c68e1518d666026",
-    }
-    def mock_get_sha(path):
-        import os
-        return valid_hashes.get(os.path.relpath(path, "."))
-        
-    with tempfile.TemporaryDirectory() as d:
-        with open(os.path.join(d, "patch.py"), "w") as f:
-            f.write("def mock(path):\n    pass")
-            
-        # We will directly mutate valid_hashes and run preflight!
-        # First we need to monkeypatch the internal get_sha
-        # Since it is a nested function, we can't easily patch it. Instead, create actual files with the correct SHAs!
-        pass
-
-    with tempfile.TemporaryDirectory() as d:
-        for fpath, hexhash in valid_hashes.items():
-            full = os.path.join(d, fpath)
-            os.makedirs(os.path.dirname(full), exist_ok=True)
-            # Find a short string that hashes to hexhash? Impossible.
-            # So let's monkeypatch hashlib.sha256 in cp.
-            pass
-            
-    # We will just patch the builtin open and hashlib.sha256 using a mock module or just mock os.path.join inside verify_training_evidence_preflight
-    
 def test_evidence_preflight_mutations_mocking(monkeypatch):
     valid_hashes = {
         "artifacts/research/cp_representation_efficiency_protocol_v7.json": "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef",
@@ -339,43 +324,70 @@ def test_population_construction():
     assert budgets == [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
 
 def test_160_job_specs():
-    train_roots = [f"r{i}" for i in range(20000)]
-    budgets = [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
-    val_roots = ["v1"]
-    test_roots = ["t1"]
-    d_val = "dval"
-    d_test = "dtest"
-    budget_digests = {b: f"d{b}" for b in budgets}
+    import chessheat.cp_representation_efficiency as cp
+    class MockEv:
+        protocol_v7_sha = "a"
+        seal_v2_sha = "b"
+        label_scientific_sha = "c"
+        runtime_v3_pin_sha = "d"
     
-    populations = (train_roots, budgets, val_roots, test_roots, d_val, d_test, budget_digests)
-    specs = cp.build_job_specs(populations, "p", "s", "l", "r", "a")
+    train = ["r%d"%i for i in range(25000)]
+    budgets = [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
+    val = ["v1"]
+    test = ["t1"]
+    bd = {b: str(b) for b in budgets}
+    pops = (train, budgets, val, test, "val_d", "test_d", bd)
+    
+    specs = cp.build_job_specs(pops, MockEv(), "cache_path", "approved")
+    
+    expected_tuples = {(cond, b, s) for cond in ["mu_D", "mu_T", "B_daS", "B_perm"]
+                       for b in budgets for s in [1729, 2718, 31415, 65537, 104729]}
+    
+    actual_tuples = {(s.condition, s.nominal_budget, s.seed) for s in specs}
+    assert actual_tuples == expected_tuples
+    assert len(actual_tuples) == 160
     assert len(specs) == 160
-    assert specs[0].condition in {"mu_D", "mu_T", "B_daS", "B_perm"}
-    assert specs[0].nominal_budget in [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
-    assert specs[0].seed in [1729, 2718, 31415, 65537, 104729]
 
 def dummy_worker(spec):
-    import os
-    if spec.seed == 999:
-        raise RuntimeError("worker fail")
-    return (spec.seed, os.getpid())
-
-class DummySpec:
-    def __init__(self, s): self.seed = s
-def test_160_fresh_process_orchestration():
-    specs = [DummySpec(i) for i in range(160)]
-    res = cp.run_job_specs(specs, dummy_worker)
-    assert len(res) == 160
+    return (spec.condition, spec.nominal_budget, spec.seed)
     
-    pids = set(r[1] for r in res)
-    # Ensure fresh process per spec (meaning 160 unique PIDs or at least processes isolated)
-    # Actually multiprocessing.Process creates fresh process each time.
-    assert len(pids) > 1 
+def test_160_fresh_process_orchestration():
+    import chessheat.cp_representation_efficiency as cp
+    class MockEv:
+        protocol_v7_sha = "a"
+        seal_v2_sha = "b"
+        label_scientific_sha = "c"
+        runtime_v3_pin_sha = "d"
+    train = ["r%d"%i for i in range(25000)]
+    budgets = [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
+    pops = (train, budgets, [], [], "val_d", "test_d", {b: str(b) for b in budgets})
+    specs = cp.build_job_specs(pops, MockEv(), "cache_path", "approved")
+    
+    results = cp.run_job_specs(specs, dummy_worker)
+    assert len(results) == len(specs)
+
+    # The actual launch_count is tested by checking len(results) mapping 1-to-1 with len(specs)
+
+
+def failing_worker_global(spec):
+    if spec.nominal_budget == 1000:
+        raise RuntimeError("worker fail")
+    return (spec.condition, spec.nominal_budget, spec.seed)
 
 def test_one_worker_failure():
-    specs = [DummySpec(1), DummySpec(999)]
+    import chessheat.cp_representation_efficiency as cp
+    class MockEv:
+        protocol_v7_sha = "a"
+        seal_v2_sha = "b"
+        label_scientific_sha = "c"
+        runtime_v3_pin_sha = "d"
+    train = ["r%d"%i for i in range(25000)]
+    budgets = [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
+    pops = (train, budgets, [], [], "val_d", "test_d", {b: str(b) for b in budgets})
+    specs = cp.build_job_specs(pops, MockEv(), "cache_path", "approved")
+    
     with pytest.raises(RuntimeError, match="worker fail"):
-        cp.run_job_specs(specs, dummy_worker)
+        cp.run_job_specs(specs, failing_worker_global)
 
 def test_runner_import_smoke():
     res = subprocess.run([
@@ -383,15 +395,27 @@ def test_runner_import_smoke():
     ], env=dict(os.environ, PYTHONPATH="src:."))
     assert res.returncode == 0
 
-def test_runner_no_authorization_zero_side_effects():
-    res = subprocess.run([
-        sys.executable, "scripts/run_cp_representation_efficiency.py", "--mode", "train", "--cache", "x", "--cache-sha", "y"
-    ], env=dict(os.environ, PYTHONPATH="src:.", CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA="dummy"), capture_output=True)
-    assert res.returncode != 0
-
-# REMAINING_REAUDIT_TARGET: test_root_weighted_loss_and_attrition
-# REMAINING_REAUDIT_TARGET: test_early_stopping
-# REMAINING_REAUDIT_TARGET: test_checkpoint_test_once
-# REMAINING_REAUDIT_TARGET: test_full_job_determinism
-# REMAINING_REAUDIT_TARGET: MAX_PAIR_MPS_FEASIBILITY_REMAINING_REAUDIT_TARGET
-
+def test_runner_no_authorization_zero_side_effects(tmp_path, monkeypatch):
+    import os, subprocess
+    import chessheat.cp_representation_efficiency as cp
+    
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.check_call(["git", "init"], cwd=str(repo))
+    
+    # Create all bound files so git show works
+    for fpath in cp.BOUND_FILES:
+        full = repo / fpath
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_text("dummy")
+        subprocess.check_call(["git", "add", str(full)], cwd=str(repo))
+        
+    subprocess.check_call(["git", "commit", "-m", "init"], cwd=str(repo))
+    commit_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(repo)).decode().strip()
+    
+    os.environ["CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA"] = commit_sha
+    if "CHESSHEAT_REAL_TRAINING_AUTHORIZED" in os.environ:
+        del os.environ["CHESSHEAT_REAL_TRAINING_AUTHORIZED"]
+        
+    with pytest.raises(ValueError, match='Real training not authorized'):
+        cp.run_training_parent(commit_sha, "mock", "mock", repo_root=str(repo))

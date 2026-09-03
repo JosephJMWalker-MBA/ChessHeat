@@ -32,11 +32,18 @@ BOUND_FILES = [
 
 
 def verify_approved_sha_gate(approved_sha: str, repo_root: str = "."):
-    import os
+    import os, re, subprocess
     if os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA") != approved_sha:
         raise ValueError("Missing or mismatched CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA")
     if not isinstance(approved_sha, str) or not re.match(r"^[0-9a-f]{40}$", approved_sha):
         raise ValueError("SHA must be exactly 40 lowercase hexadecimal characters.")
+    try:
+        # Check that there are no uncommitted changes in tracked files
+        # AND reject index-only drift
+        subprocess.check_call(["git", "diff", "--quiet"], cwd=repo_root)
+        subprocess.check_call(["git", "diff", "--cached", "--quiet"], cwd=repo_root)
+    except subprocess.CalledProcessError:
+        raise ValueError("Dirty working tree or index-only drift detected.")
         
     try:
         typ = subprocess.check_output(["git", "cat-file", "-t", approved_sha], cwd=repo_root, stderr=subprocess.STDOUT).decode().strip()
@@ -237,48 +244,67 @@ def construct_learner_records(root_record: Dict, condition: str) -> List[Learner
     return records
 
 def read_and_validate_roots(records: List[Dict]) -> List[Dict]:
-    required_fields = ['schema', 'label_derivation_protocol', 'label_derivation_software_revision', 'protocol_id', 'protocol_json_sha256', 'source_raw_sha256', 'target_raw_sha256', 'target_seal_v2_sha256', 'manifest_sha256', 'root_identity', 'root_record_digest', 'sufficient_position', 'conservative_split_group', 'partition', 'source_status', 'target_status', 'source_cp_move_count', 'source_pair_count', 'target_evaluable_pair_count', 'target_non_evaluable_pair_count', 'pairs']
+    seen_roots = set()
     for p in records:
-        for f in required_fields:
-            if f not in p:
-                raise ValueError(f"Missing required field: {f}")
-        if "schema" not in p:
-            raise ValueError("missing schema")
-        if "protocol_id" not in p:
-            raise ValueError("missing protocol_id")
+        if p.get("schema") != "CP_TARGET_PAIR_LABEL_ROOT_V6":
+            raise ValueError("Exact schema mismatch")
+        if p.get("label_derivation_protocol") != "CP_TARGET_LABEL_DERIVATION_V6":
+            raise ValueError("Exact label_derivation_protocol mismatch")
+        if p.get("protocol_id") != "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7":
+            raise ValueError("Exact protocol_id mismatch")
+        if p.get("partition") not in {"TRAIN", "VALIDATION", "TEST"}:
+            raise ValueError("Exact partition mismatch")
             
+        rid = p.get("root_identity")
+        if not rid: raise ValueError("missing root_identity")
+        if rid in seen_roots:
+            raise ValueError("Duplicate root_identity in population")
+        seen_roots.add(rid)
+
         sp = p.get("sufficient_position", {})
         if sp.get("side_to_move") not in {"w", "b"}:
             raise ValueError("side_to_move must be w or b")
-            
+
         eval_c = p.get("target_evaluable_pair_count", 0)
         noneval_c = p.get("target_non_evaluable_pair_count", 0)
         src_c = p.get("source_pair_count", 0)
+
+        pairs = p.get("pairs", [])
+        if len(pairs) != src_c:
+            raise ValueError("len(pairs) != source_pair_count")
+
+        actual_evaluable = sum(1 for pair in pairs if pair.get("target_label") is not None)
+        actual_non_evaluable = sum(1 for pair in pairs if pair.get("target_label") is None)
         
-        if eval_c + noneval_c != src_c:
-            raise ValueError("Count mismatch")
-            
-        prev_pair_id = None
-        for pair in p.get("pairs", []):
-            m1 = pair["m1_uci"]
-            m2 = pair["m2_uci"]
+        if actual_evaluable != eval_c:
+            raise ValueError("actual_evaluable != target_evaluable_pair_count")
+        if actual_non_evaluable != noneval_c:
+            raise ValueError("actual_non_evaluable != target_non_evaluable_pair_count")
+        if actual_evaluable + actual_non_evaluable != src_c:
+            raise ValueError("actual_evaluable + actual_non_evaluable != source_pair_count")
+
+        prev_m = None
+        for pair in pairs:
+            m1 = pair.get("m1_uci")
+            m2 = pair.get("m2_uci")
+            if not m1 or not m2: raise ValueError("Missing uci")
             if not (m1 < m2):
                 raise ValueError("m1 must be less than m2")
-            
+            if prev_m is not None:
+                if not (prev_m < (m1, m2)):
+                    raise ValueError("pairs must be strictly lexically ordered by (m1, m2)")
+            prev_m = (m1, m2)
+
             import hashlib
-            expected_sha = hashlib.sha256(f"CHESSHEAT_TARGET_PAIR_V1|{p['root_identity']}|{m1}|{m2}".encode()).hexdigest()
-            if pair["pair_id"] != expected_sha:
+            expected_sha = hashlib.sha256(f"CHESSHEAT_TARGET_PAIR_V1|{rid}|{m1}|{m2}".encode()).hexdigest()
+            if pair.get("pair_id") != expected_sha:
                 raise ValueError("pair_id SHA mismatch")
-                
-            if prev_pair_id and pair["pair_id"] <= prev_pair_id:
-                raise ValueError("pairs must be strictly lexically ordered by pair_id")
-            prev_pair_id = pair["pair_id"]
-            
+
             cp1 = pair.get("source_cp_m1")
             cp2 = pair.get("source_cp_m2")
-            if type(cp1) is bool or type(cp2) is bool:
-                raise ValueError("source cp cannot be boolean")
-                
+            if type(cp1) is not int or type(cp2) is not int:
+                raise ValueError("source cp must be int")
+
             from chessheat.cp_target_labels import SourcePairFeatures
             try:
                 sf = SourcePairFeatures(m1, cp1, m2, cp2)
@@ -296,11 +322,6 @@ def read_and_validate_roots(records: List[Dict]) -> List[Dict]:
             if tl is not None and "target_non_evaluable_reason" in pair:
                 raise ValueError("reason present with valid label")
 
-                
-            if tl is None:
-                if pair.get("target_non_evaluable_reason") != "TARGET_ACQUISITION_FAILURE":
-                    raise ValueError("Null target label requires TARGET_ACQUISITION_FAILURE")
-                    
     return records
 
 
@@ -560,6 +581,8 @@ class EvidenceIdentity:
     target_label_requirements_sha: str
     evidence_audit_commit: str
     evidence_supplement_commit: str
+    label_scientific_sha: str
+    label_compressed_sha: str
 
 def verify_training_evidence_preflight(repo_root: str = "."):
     import subprocess
@@ -586,14 +609,15 @@ def verify_training_evidence_preflight(repo_root: str = "."):
         raise ValueError("SHA mismatch for requirements/target-label-runtime-v1.txt")
 
     try:
-        subprocess.check_call(["git", "cat-file", "-e", "2f7560a38427754404c6f1ee6115db950d18815c^{commit}"], cwd=repo_root, stderr=subprocess.STDOUT)
+        # Check that both commits exist and are ancestors of the approved_implementation_sha
+        subprocess.check_call(["git", "merge-base", "--is-ancestor", "2f7560a38427754404c6f1ee6115db950d18815c", os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA", "HEAD")], cwd=repo_root, stderr=subprocess.STDOUT)
     except Exception:
-        raise ValueError("evidence audit commit missing")
+        raise ValueError("evidence audit commit missing or not ancestor")
         
     try:
-        subprocess.check_call(["git", "cat-file", "-e", "87e1edad72d2899d0bc7a05d11d9601d60b7cba3^{commit}"], cwd=repo_root, stderr=subprocess.STDOUT)
+        subprocess.check_call(["git", "merge-base", "--is-ancestor", "87e1edad72d2899d0bc7a05d11d9601d60b7cba3", os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA", "HEAD")], cwd=repo_root, stderr=subprocess.STDOUT)
     except Exception:
-        raise ValueError("evidence supplement commit missing")
+        raise ValueError("evidence supplement commit missing or not ancestor")
 
     return EvidenceIdentity(
         protocol_v7_sha=get_sha("artifacts/research/cp_representation_efficiency_protocol_v7.json"),
@@ -605,7 +629,9 @@ def verify_training_evidence_preflight(repo_root: str = "."):
         target_label_runtime_pin_sha=get_sha("artifacts/research/target_label_derivation_runtime_pin_v1.json"),
         target_label_requirements_sha=get_sha("requirements/target-label-runtime-v1.txt"),
         evidence_audit_commit="2f7560a38427754404c6f1ee6115db950d18815c",
-        evidence_supplement_commit="87e1edad72d2899d0bc7a05d11d9601d60b7cba3"
+        evidence_supplement_commit="87e1edad72d2899d0bc7a05d11d9601d60b7cba3",
+        label_scientific_sha="c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2",
+        label_compressed_sha="dea9346f9cb125f9c35e8824bb937daf4ea7fc51cff7f6c7c437caac8ae2c92d"
     )
 
 def build_frozen_populations(cache: DerivedCache):
@@ -662,12 +688,15 @@ class JobSpec:
     seal_v2_sha: str
     label_scientific_sha: str
     runtime_v3_identity: str
+    runtime_v3_pin_sha: str
     approved_implementation_sha: str
+    cache_path: str
 
-def build_job_specs(populations, protocol_sha, seal_sha, label_sha, runtime_id, approved_sha):
+def build_job_specs(populations, ev_id, cache_path, approved_sha):
     specs = []
     conditions = ["mu_D", "mu_T", "B_daS", "B_perm"]
     train_roots, budgets, val_roots, test_roots, d_val, d_test, budget_digests = populations
+    # test_roots and val_roots should already be sorted lexically by build_frozen_populations
     for cond in conditions:
         for b in budgets:
             for s in [1729, 2718, 31415, 65537, 104729]:
@@ -681,11 +710,13 @@ def build_job_specs(populations, protocol_sha, seal_sha, label_sha, runtime_id, 
                     validation_population_digest=d_val,
                     test_root_ids=tuple(test_roots),
                     test_population_digest=d_test,
-                    protocol_v7_sha=protocol_sha,
-                    seal_v2_sha=seal_sha,
-                    label_scientific_sha=label_sha,
-                    runtime_v3_identity=runtime_id,
-                    approved_implementation_sha=approved_sha
+                    protocol_v7_sha=ev_id.protocol_v7_sha,
+                    seal_v2_sha=ev_id.seal_v2_sha,
+                    label_scientific_sha=ev_id.label_scientific_sha,
+                    runtime_v3_identity="CHESSHEAT_ML_RUNTIME_V3",
+                    runtime_v3_pin_sha=ev_id.runtime_v3_pin_sha,
+                    approved_implementation_sha=approved_sha,
+                    cache_path=cache_path
                 ))
     if len(specs) != 160:
         raise ValueError("Must have exactly 160 specs")
@@ -718,18 +749,67 @@ def run_job_specs(job_specs: List[JobSpec], worker_fn):
         
     return results
 
+def run_downstream_worker(spec: JobSpec):
+    # Verify cached roots via independently opening the cache
+    cache = DerivedCache(spec.cache_path, spec.label_scientific_sha)
+    
+    # Load exact roots
+    def get_and_validate(rids):
+        res = []
+        for r in rids:
+            root = cache.get_root(r)
+            if not root:
+                raise ValueError(f"Root {r} not found")
+            res.append(root)
+        # Validate them
+        return read_and_validate_roots(res)
+        
+    nominal = get_and_validate(spec.nominal_root_ids)
+    val = get_and_validate(spec.validation_root_ids)
+    test = get_and_validate(spec.test_root_ids)
+    
+    # Independently recompute digests (must match spec)
+    def mk_digest(domain, items):
+        import hashlib
+        h = hashlib.sha256()
+        h.update(f"{domain}\n".encode())
+        for x in items:
+            h.update(f"{x}\n".encode())
+        return h.hexdigest()
+        
+    if mk_digest("CHESSHEAT_ROOT_POPULATION_V1", spec.nominal_root_ids) != spec.nominal_root_population_digest:
+        raise ValueError("Nominal digest mismatch in worker")
+    if mk_digest("CHESSHEAT_ROOT_POPULATION_V1", spec.validation_root_ids) != spec.validation_population_digest:
+        raise ValueError("Validation digest mismatch in worker")
+    if mk_digest("CHESSHEAT_ROOT_POPULATION_V1", spec.test_root_ids) != spec.test_population_digest:
+        raise ValueError("Test digest mismatch in worker")
+        
+    # Mocking run_training_job logic
+    # Real implementation would call the learner here
+    # run_training_job(spec.condition, spec.nominal_budget, spec.seed, nominal, ...)
+    return (spec.condition, spec.nominal_budget, spec.seed)
+
 def run_training_parent(approved_sha: str, cache_path: str, cache_sha: str, repo_root: str = "."):
     verify_approved_sha_gate(approved_sha, repo_root)
     check_real_training_authorization()
     ev_id = verify_training_evidence_preflight(repo_root)
+    
+    if cache_sha != ev_id.label_scientific_sha:
+        raise ValueError("cache_sha MUST exactly equal the canonical label scientific SHA")
+        
     cache = DerivedCache(cache_path, cache_sha)
     populations = build_frozen_populations(cache)
-    job_specs = build_job_specs(populations, ev_id.protocol_v7_sha, ev_id.seal_v2_sha, cache_sha, ev_id.runtime_v3_pin_sha, approved_sha)
+    job_specs = build_job_specs(populations, ev_id, cache_path, approved_sha)
     
     results = run_job_specs(job_specs, run_downstream_worker)
+    
     if len(results) != 160:
         raise ValueError("Missing results")
         
-    print("STOP_BEFORE_SCIENTIFIC_ANALYSIS")
-    import sys
-    sys.exit(0)
+    expected_tuples = {(spec.condition, spec.nominal_budget, spec.seed) for spec in job_specs}
+    actual_tuples = set(results)
+    if actual_tuples != expected_tuples or len(results) != 160:
+        raise ValueError("Results tuples incompleteness")
+        
+    return "STOP_BEFORE_SCIENTIFIC_ANALYSIS"
+
