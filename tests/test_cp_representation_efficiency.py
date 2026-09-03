@@ -260,12 +260,12 @@ def test_population_construction():
     cache.roots = {}
     for i in range(20000):
         cache.roots[f"r{i}"] = {"partition": "TRAIN", "source_pair_count": 1}
-    cache.roots["v1"] = {"partition": "VALIDATION", "target_evaluable_pair_count": 1}
+    cache.roots["CHESSHEAT_TARGET_ROOT_v1"] = {"partition": "VALIDATION", "target_evaluable_pair_count": 1}
     cache.roots["t1"] = {"partition": "TEST", "target_evaluable_pair_count": 1}
     
     train, budgets, val, test, d_val, d_test, budget_digests = cp.build_frozen_populations(cache)
     assert len(train) == 20000
-    assert "v1" in val
+    assert "CHESSHEAT_TARGET_ROOT_v1" in val
     assert "t1" in test
     assert budgets == [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
 
@@ -279,7 +279,7 @@ def test_160_job_specs():
     
     train = ["r%d"%i for i in range(25000)]
     budgets = [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
-    val = ["v1"]
+    val = ["CHESSHEAT_TARGET_ROOT_v1"]
     test = ["t1"]
     bd = {b: str(b) for b in budgets}
     pops = (train, budgets, val, test, "val_d", "test_d", bd)
@@ -621,7 +621,7 @@ def test_worker_binding():
     spec = cp.JobSpec(
         condition="C", nominal_budget=1, seed=1,
         nominal_root_ids=["r1"], nominal_root_population_digest=cp.canonical_root_population_digest(["r1"]),
-        validation_root_ids=["v1"], validation_population_digest=cp.canonical_root_population_digest(["v1"]),
+        validation_root_ids=["CHESSHEAT_TARGET_ROOT_v1"], validation_population_digest=cp.canonical_root_population_digest(["CHESSHEAT_TARGET_ROOT_v1"]),
         test_root_ids=["t1"], test_population_digest=cp.canonical_root_population_digest(["t1"]),
         protocol_v7_sha="b", seal_v2_sha="c", label_scientific_sha="d",
         runtime_v3_identity="e", runtime_v3_pin_sha="f",
@@ -636,7 +636,7 @@ def test_worker_binding():
         "nominal_budget": 1,
         "seed": 1,
         "nominal_root_population_digest": cp.canonical_root_population_digest(["r1"]),
-        "validation_population_digest": cp.canonical_root_population_digest(["v1"]),
+        "validation_population_digest": cp.canonical_root_population_digest(["CHESSHEAT_TARGET_ROOT_v1"]),
         "test_population_digest": cp.canonical_root_population_digest(["t1"]),
         "nominal_root_count": 1,
         "effective_training_root_count": 1,
@@ -814,36 +814,432 @@ def test_scheduler_child_hangs():
 
 
 def test_root_weighted_numerical_hostile_proof():
-    import chessheat.cp_representation_efficiency as cp
-    import torch
-    # "1 pair = 1/1, 5 pairs = 1/5 each. Exact gradient scale equality."
-    # We can mock this by creating a fake LearnerRecord, but it's simpler to test the loss function itself.
-    import torch.nn.functional as F
+    import subprocess
+    import sys
+    import os
+    import json
     
-    # 1 pair root
-    l1 = torch.tensor([0.0, 1.0])
-    l2 = torch.tensor([0.0, 1.0])
-    # The actual implementation: weight is 1.0 / target_evaluable_pair_count
-    pass # Already tested implicitly via the actual training process. 
+    script = '''
+import chessheat.ml_runtime as ml
+ml.validate_runtime_identity = lambda: None
+import chessheat.cp_representation_efficiency as cp
+import torch
+import json
+
+def make_root(rid, n_pairs):
+    import hashlib
+    from chessheat.cp_target_labels import SourcePairFeatures
+    return {
+        "schema": "CP_TARGET_PAIR_LABEL_ROOT_V6",
+        "root_identity": rid,
+        "label_derivation_protocol": "CP_TARGET_LABEL_DERIVATION_V6",
+        "target_evaluator_version": "16.1",
+        "protocol_id": "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7",
+        "partition": "TRAIN",
+        "sufficient_position": {
+            "board_arrangement_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR",
+            "side_to_move": "w",
+            "castling_rights": "KQkq",
+            "ep_square": None
+        },
+        "target_evaluable_pair_count": n_pairs,
+        "target_non_evaluable_pair_count": 0,
+        "source_pair_count": n_pairs,
+        "pairs": [
+            {
+                "pair_id": hashlib.sha256(f"CHESSHEAT_TARGET_PAIR_V1|{rid}|a1{chr(97+i)}1|e7e5".encode()).hexdigest(),
+                "m1_uci": f"a1{chr(97+i)}1", "m2_uci": "e7e5",
+                "source_cp_m1": 100, "source_cp_m2": -50,
+                "d_X": SourcePairFeatures(f"a1{chr(97+i)}1", 100, "e7e5", -50).d_x,
+                "a_X": SourcePairFeatures(f"a1{chr(97+i)}1", 100, "e7e5", -50).a_x,
+                "target_label": "FIRST_BETTER",
+                "m1_heat": 0.5, "m2_heat": -0.5
+            } for i in range(n_pairs)
+        ]
+    }
+
+class MockLoss(torch.nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+    def forward(self, logits, target):
+        n = target.shape[0]
+        if n == 1:
+            t = torch.tensor([10.0], requires_grad=True)
+        elif n == 5:
+            t = torch.tensor([2.0, 2.0, 2.0, 2.0, 2.0], requires_grad=True)
+        else:
+            t = torch.zeros(n, requires_grad=True)
+        return t
+
+step_counts = []
+def mock_build_adam(*args, **kwargs):
+    class MockOpt:
+        def zero_grad(self): pass
+        def step(self): step_counts.append(1)
+    return MockOpt()
+
+def mock_evaluate(*args, **kwargs):
+    raise StopIteration("Stop epoch")
+
+backward_scalars = []
+original_backward = torch.Tensor.backward
+def mock_backward(self, *args, **kwargs):
+    backward_scalars.append(self.item())
+
+torch.Tensor.backward = mock_backward
+cp.build_frozen_adam = mock_build_adam
+torch.nn.CrossEntropyLoss = MockLoss
+cp.evaluate_roots = mock_evaluate
+
+train = [make_root(f"CHESSHEAT_TARGET_ROOT_{i}", 1 if i % 2 == 0 else 5) for i in range(250)]
+train.sort(key=lambda x: cp.canonical_budget_order(x["root_identity"]))
+val = [make_root("CHESSHEAT_TARGET_ROOT_v1", 1)]
+val[0]["partition"] = "VALIDATION"
+test = [make_root("CHESSHEAT_TARGET_ROOT_te1", 1)]
+test[0]["partition"] = "TEST"
+
+original_get_epoch_order = cp.get_epoch_order
+def run_with_counts(n_train):
+    backward_scalars.clear()
+    step_counts.clear()
+    def mock_get_epoch_order(seed, epoch, root_ids):
+        return root_ids[:n_train]
+    cp.get_epoch_order = mock_get_epoch_order
+    try:
+        cp.run_training_job(
+            condition="mu_D", nominal_budget=250, seed=1729,
+            training_root_records=train, validation_root_records=val, test_root_records=test,
+            nominal_root_population_digest=cp.canonical_root_population_digest([r["root_identity"] for r in train]),
+            validation_population_digest=cp.canonical_root_population_digest([r["root_identity"] for r in val]),
+            test_population_digest=cp.canonical_root_population_digest([r["root_identity"] for r in test])
+        )
+    except StopIteration:
+        pass
+    return list(backward_scalars), len(step_counts)
+
+res_2, steps_2 = run_with_counts(2)
+
+counts_map = {1: 1, 63: 1, 64: 1, 65: 2, 128: 2, 129: 3}
+steps_out = {}
+for n, expected in counts_map.items():
+    _, s = run_with_counts(n)
+    steps_out[n] = s
+
+print(json.dumps({
+    "backward_scalars_2": res_2,
+    "steps": steps_out
+}))
+'''
+    env = os.environ.copy()
+    env["CHESSHEAT_RUNTIME_V3_AUTHORIZED"] = "1"
+    env["CHESSHEAT_ML_RUNTIME_ID"] = "CHESSHEAT_ML_RUNTIME_V3"
+    env["CHESSHEAT_MPS_ENABLED"] = "0"
+    
+    p = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True)
+    assert p.returncode == 0, p.stderr
+    out = json.loads(p.stdout.strip())
+    
+    scalars = out["backward_scalars_2"]
+    assert len(scalars) == 1
+    # root A=10, root B=2. Expected root-weighted mean = 6.0
+    expected = 6.0
+    global_mean = (10.0 + 2.0*5) / 6
+    assert abs(scalars[0] - expected) < 1e-5
+    assert abs(scalars[0] - global_mean) > 1.0
+    
+    steps = out["steps"]
+    expected_steps = {"1": 1, "63": 1, "64": 1, "65": 2, "128": 2, "129": 3}
+    for k, v in expected_steps.items():
+        assert steps[str(k)] == v
 
 def test_early_stopping_hostile_proof():
-    # Early stopping state machine test (strict improvement, 20 patience, 200 max, inf/nan)
-    pass
+    import subprocess
+    import sys
+    import os
+    import json
+    
+    script = '''
+import chessheat.ml_runtime as ml
+ml.validate_runtime_identity = lambda: None
+import chessheat.cp_representation_efficiency as cp
+import torch
+import json
+
+def make_root(rid, n_pairs):
+    import hashlib
+    from chessheat.cp_target_labels import SourcePairFeatures
+    return {
+        "schema": "CP_TARGET_PAIR_LABEL_ROOT_V6",
+        "root_identity": rid,
+        "label_derivation_protocol": "CP_TARGET_LABEL_DERIVATION_V6",
+        "target_evaluator_version": "16.1",
+        "protocol_id": "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7",
+        "partition": "TRAIN",
+        "sufficient_position": {
+            "board_arrangement_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR",
+            "side_to_move": "w",
+            "castling_rights": "KQkq",
+            "ep_square": None
+        },
+        "target_evaluable_pair_count": n_pairs,
+        "target_non_evaluable_pair_count": 0,
+        "source_pair_count": n_pairs,
+        "pairs": [
+            {
+                "pair_id": hashlib.sha256(f"CHESSHEAT_TARGET_PAIR_V1|{rid}|a1{chr(97+i)}1|e7e5".encode()).hexdigest(),
+                "m1_uci": f"a1{chr(97+i)}1", "m2_uci": "e7e5",
+                "source_cp_m1": 100, "source_cp_m2": -50,
+                "d_X": SourcePairFeatures(f"a1{chr(97+i)}1", 100, "e7e5", -50).d_x,
+                "a_X": SourcePairFeatures(f"a1{chr(97+i)}1", 100, "e7e5", -50).a_x,
+                "target_label": "FIRST_BETTER",
+                "m1_heat": 0.5, "m2_heat": -0.5
+            } for i in range(n_pairs)
+        ]
+    }
+
+def mock_build_adam(*args, **kwargs):
+    class MockOpt:
+        def zero_grad(self): pass
+        def step(self): pass
+    return MockOpt()
+
+original_eval = cp.evaluate_roots
+val_seq = []
+epoch_idx = 0
+def mock_evaluate(*args, **kwargs):
+    global epoch_idx
+    if epoch_idx < len(val_seq):
+        val = val_seq[epoch_idx]
+    else:
+        val = 100.0
+    epoch_idx += 1
+    return {"CHESSHEAT_TARGET_ROOT_val1": val}
+
+cp.build_frozen_adam = mock_build_adam
+cp.evaluate_roots = mock_evaluate
+original_build_model = cp._build_model
+def mock_build_model(*args, **kwargs):
+    class M(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.p = torch.nn.Parameter(torch.zeros(1))
+        def forward(self, x, y):
+            return torch.zeros(x.shape[0], 3, device=x.device) + self.p.to(x.device)
+    return M()
+cp._build_model = mock_build_model
+
+train = [make_root(f"CHESSHEAT_TARGET_ROOT_tr{i}", 1) for i in range(250)]
+train.sort(key=lambda x: cp.canonical_budget_order(x["root_identity"]))
+val = [make_root("CHESSHEAT_TARGET_ROOT_val1", 1)]
+val[0]["partition"] = "VALIDATION"
+test = [make_root("CHESSHEAT_TARGET_ROOT_test1", 1)]
+test[0]["partition"] = "TEST"
+
+def run_seq(seq):
+    global val_seq, epoch_idx
+    val_seq = seq
+    epoch_idx = 0
+    try:
+        res = cp.run_training_job(
+            condition="mu_D", nominal_budget=250, seed=1729,
+            training_root_records=train, validation_root_records=val, test_root_records=test,
+            nominal_root_population_digest=cp.canonical_root_population_digest([r["root_identity"] for r in train]),
+            validation_population_digest=cp.canonical_root_population_digest([r["root_identity"] for r in val]),
+            test_population_digest=cp.canonical_root_population_digest([r["root_identity"] for r in test])
+        )
+        return {"status": "ok", "best": res["best_epoch"], "epochs": res["epochs_completed"]}
+    except Exception as e:
+        return {"status": "error", "msg": str(e)}
+
+out = {}
+out["strict_improve"] = run_seq([10.0, 9.0, 8.0, 7.0] + [100.0]*20)
+out["equal_no_improve"] = run_seq([10.0, 10.0, 10.0] + [100.0]*20)
+out["nan"] = run_seq([float('nan')])
+out["inf"] = run_seq([float('inf')])
+out["ninf"] = run_seq([float('-inf')])
+out["never_stop"] = run_seq([200.0 - i for i in range(250)])
+
+print(json.dumps(out))
+'''
+    env = os.environ.copy()
+    env["CHESSHEAT_RUNTIME_V3_AUTHORIZED"] = "1"
+    env["CHESSHEAT_ML_RUNTIME_ID"] = "CHESSHEAT_ML_RUNTIME_V3"
+    env["CHESSHEAT_MPS_ENABLED"] = "0"
+    
+    p = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True)
+    assert p.returncode == 0, p.stderr
+    out = json.loads(p.stdout.strip())
+    
+    assert out["strict_improve"].get("status") == "ok", out["strict_improve"]
+    assert out["strict_improve"]["best"] == 3
+    assert out["strict_improve"]["epochs"] == 3 + 20 + 1 # wait, it runs epoch 3 (the best), then 20 more epochs of failure, total 24 epochs!
+    assert out["equal_no_improve"]["best"] == 0
+    assert out["nan"]["status"] == "error"
+    assert out["inf"]["status"] == "error"
+    assert out["ninf"]["status"] == "error"
+    assert out["never_stop"]["best"] == 199
+    assert out["never_stop"]["epochs"] == 200
 
 def test_model_state_digest_hostile_proof():
-    import torch
-    from chessheat.cp_representation_efficiency import _build_model, get_canonical_state_digest
-    model = _build_model(torch)
-    d = get_canonical_state_digest(model)
-    assert len(d) == 64
-
-def test_checkpoint_test_once_proof():
     import chessheat.cp_representation_efficiency as cp
     import torch
+    import copy
+    
     model = cp._build_model(torch)
+    d1 = cp.get_canonical_state_digest(model)
+    d2 = cp.get_canonical_state_digest(model)
+    assert d1 == d2
+    
+    # save genuine model state
+    saved_state = copy.deepcopy(model.state_dict())
+    
+    # single tensor value mutation
+    with torch.no_grad():
+        for name, param in model.named_parameters():
+            param.data[0] += 1.0
+            break
+    d_val_mut = cp.get_canonical_state_digest(model)
+    assert d_val_mut != d1
+    
+    # restore saved state
+    model.load_state_dict(saved_state)
+    assert cp.get_canonical_state_digest(model) == d1
+    
+    # state_dict parameter key/name mutation
+    state = copy.deepcopy(saved_state)
+    keys = list(state.keys())
+    state["wrong_key_name"] = state.pop(keys[0])
+    model_mock = torch.nn.Module()
+    model_mock.state_dict = lambda: state
+    d_key_mut = cp.get_canonical_state_digest(model_mock)
+    assert d_key_mut != d1
+    
+    # tensor shape mutation
+    state = copy.deepcopy(saved_state)
+    state[keys[0]] = state[keys[0]].view(-1)
+    d_shape_mut = cp.get_canonical_state_digest(model_mock)
+    assert d_shape_mut != d1
+    
+    # tensor dtype mutation
+    state = copy.deepcopy(saved_state)
+    state[keys[0]] = state[keys[0]].to(torch.float64)
+    d_dtype_mut = cp.get_canonical_state_digest(model_mock)
+    assert d_dtype_mut != d1
+
+def test_checkpoint_test_once_proof():
+    import subprocess
+    import sys
+    import os
+    import json
+    
+    script = '''
+import chessheat.ml_runtime as ml
+ml.validate_runtime_identity = lambda: None
+import chessheat.cp_representation_efficiency as cp
+import torch
+import json
+
+def make_root(rid, n_pairs):
+    import hashlib
+    from chessheat.cp_target_labels import SourcePairFeatures
+    return {
+        "schema": "CP_TARGET_PAIR_LABEL_ROOT_V6",
+        "root_identity": rid,
+        "label_derivation_protocol": "CP_TARGET_LABEL_DERIVATION_V6",
+        "target_evaluator_version": "16.1",
+        "protocol_id": "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7",
+        "partition": "TRAIN",
+        "sufficient_position": {
+            "board_arrangement_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR",
+            "side_to_move": "w",
+            "castling_rights": "KQkq",
+            "ep_square": None
+        },
+        "target_evaluable_pair_count": n_pairs,
+        "target_non_evaluable_pair_count": 0,
+        "source_pair_count": n_pairs,
+        "pairs": [
+            {
+                "pair_id": hashlib.sha256(f"CHESSHEAT_TARGET_PAIR_V1|{rid}|a1{chr(97+i)}1|e7e5".encode()).hexdigest(),
+                "m1_uci": f"a1{chr(97+i)}1", "m2_uci": "e7e5",
+                "source_cp_m1": 100, "source_cp_m2": -50,
+                "d_X": SourcePairFeatures(f"a1{chr(97+i)}1", 100, "e7e5", -50).d_x,
+                "a_X": SourcePairFeatures(f"a1{chr(97+i)}1", 100, "e7e5", -50).a_x,
+                "target_label": "FIRST_BETTER",
+                "m1_heat": 0.5, "m2_heat": -0.5
+            } for i in range(n_pairs)
+        ]
+    }
+
+def mock_build_adam(*args, **kwargs):
+    class MockOpt:
+        def zero_grad(self): pass
+        def step(self): pass
+    return MockOpt()
+cp.build_frozen_adam = mock_build_adam
+
+test_evals = []
+best_digest_recorded = None
+original_eval = cp.evaluate_roots
+
+def mock_evaluate(model, root_records_tensors, root_ids, torch):
+    # track test evaluation calls
+    if root_ids and "CHESSHEAT_TARGET_ROOT_test1" in root_ids:
+        test_evals.append("TEST")
+    return original_eval(model, root_records_tensors, root_ids, torch)
+cp.evaluate_roots = mock_evaluate
+
+original_get_canonical = cp.get_canonical_state_digest
+def mock_get_canonical(model):
+    global best_digest_recorded
+    d = original_get_canonical(model)
+    best_digest_recorded = d
+    return d
+cp.get_canonical_state_digest = mock_get_canonical
+
+train = [make_root(f"CHESSHEAT_TARGET_ROOT_tr{i}", 1) for i in range(250)]
+train.sort(key=lambda x: cp.canonical_budget_order(x["root_identity"]))
+val = [make_root("CHESSHEAT_TARGET_ROOT_val1", 1)]
+val[0]["partition"] = "VALIDATION"
+test = [make_root("CHESSHEAT_TARGET_ROOT_test1", 1)]
+test[0]["partition"] = "TEST"
+
+res = cp.run_training_job(
+    condition="mu_D", nominal_budget=250, seed=1729,
+    training_root_records=train, validation_root_records=val, test_root_records=test,
+    nominal_root_population_digest=cp.canonical_root_population_digest([r["root_identity"] for r in train]),
+    validation_population_digest=cp.canonical_root_population_digest([r["root_identity"] for r in val]),
+    test_population_digest=cp.canonical_root_population_digest([r["root_identity"] for r in test])
+)
+
+print(json.dumps({
+    "test_evals": len(test_evals),
+    "best_digest_recorded": best_digest_recorded,
+    "final_digest": res["canonical_model_state_sha"]
+}))
+'''
+    env = os.environ.copy()
+    env["CHESSHEAT_RUNTIME_V3_AUTHORIZED"] = "1"
+    env["CHESSHEAT_ML_RUNTIME_ID"] = "CHESSHEAT_ML_RUNTIME_V3"
+    env["CHESSHEAT_MPS_ENABLED"] = "0"
+    
+    p = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True)
+    assert p.returncode == 0, p.stderr
+    out = json.loads(p.stdout.strip())
+    
+    assert out["test_evals"] == 1
+    assert out["best_digest_recorded"] == out["final_digest"]
+    assert len(out["final_digest"]) == 64
 
 def test_four_condition_information_boundary():
     import chessheat.cp_representation_efficiency as cp
+    from chessheat.cp_target_labels import SourcePairFeatures
+    import hashlib
+    
+    m1 = "e2e4"
+    m2 = "e7e5"
+    expected_sha = hashlib.sha256(f"CHESSHEAT_TARGET_PAIR_V1|root_1|{m1}|{m2}".encode()).hexdigest()
+    
     synthetic_root = {
         "schema": "CP_TARGET_PAIR_LABEL_ROOT_V6",
         "root_identity": "root_1",
@@ -858,15 +1254,125 @@ def test_four_condition_information_boundary():
                 "castling_rights": "KQkq",
                 "ep_square": None
             },
-        "target_evaluable_pair_count": 0,
+        "target_evaluable_pair_count": 1,
         "target_non_evaluable_pair_count": 0,
-        "source_pair_count": 0,
-        "pairs": []
+        "source_pair_count": 1,
+        "pairs": [
+            {
+                "pair_id": expected_sha,
+                "m1_uci": m1,
+                "m2_uci": m2,
+                "source_cp_m1": 100,
+                "source_cp_m2": -50,
+                "d_X": SourcePairFeatures("e2e4", 100, "e7e5", -50).d_x,
+                "a_X": SourcePairFeatures("e2e4", 100, "e7e5", -50).a_x,
+                "target_label": "FIRST_BETTER",
+                "m1_heat": 0.5,
+                "m2_heat": -0.5
+            }
+        ]
     }
-    rec_muD = cp.construct_learner_records(synthetic_root, "mu_D")
     
+    rec_muD = cp.construct_learner_records(synthetic_root, "mu_D")
+    rec_muT = cp.construct_learner_records(synthetic_root, "mu_T")
+    rec_BdaS = cp.construct_learner_records(synthetic_root, "B_daS")
+    rec_Bperm = cp.construct_learner_records(synthetic_root, "B_perm")
+    
+    assert len(rec_muD) == 1
+    assert len(rec_muT) == 1
+    assert len(rec_BdaS) == 1
+    assert len(rec_Bperm) == 1
+    
+    # Require byte-identical p_tensor, side_tensor, label
+    assert rec_muD[0].p_tensor.to_bytes() == rec_muT[0].p_tensor.to_bytes() == rec_BdaS[0].p_tensor.to_bytes() == rec_Bperm[0].p_tensor.to_bytes()
+    assert rec_muD[0].side_tensor.to_bytes() == rec_muT[0].side_tensor.to_bytes() == rec_BdaS[0].side_tensor.to_bytes() == rec_Bperm[0].side_tensor.to_bytes()
+    assert rec_muD[0].label == rec_muT[0].label == rec_BdaS[0].label == rec_Bperm[0].label
+    
+    # Require B_daS spatial_map == canonical all-zero 1x8x8 float32 map
+    zero_map = [0.0] * 64
+    import struct
+    zero_bytes = struct.pack('<64f', *zero_map)
+    assert rec_BdaS[0].spatial_map.to_bytes() == zero_bytes
+    
+    # Require mu_D spatial_map == build_m_d
+    sf = SourcePairFeatures(m1, 100, m2, -50)
+    assert rec_muD[0].spatial_map.to_bytes() == cp.build_m_d(sf).to_bytes()
+    
+    # Require mu_T spatial_map == build_m_t
+    assert rec_muT[0].spatial_map.to_bytes() == cp.build_m_t(sf).to_bytes()
+    
+    # Require B_perm spatial_map == build_m_perm
+    assert rec_Bperm[0].spatial_map.to_bytes() == cp.build_m_perm(sf).to_bytes()
+
 def test_b_perm_primary_analysis_exclusion():
-    pass
+    import chessheat.cp_representation_efficiency as cp
+    import chessheat.protocol_freeze as protocol
+    from unittest.mock import patch
+    import copy
+    
+    def fake_res(condition):
+        return {
+            "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V14",
+            "condition": condition,
+            "nominal_budget": 250,
+            "seed": 1729,
+            "approved_implementation_sha": "fake",
+            "protocol_v7_sha": "fake",
+            "seal_v2_sha": "fake",
+            "label_scientific_sha": "fake",
+            "runtime_v3_identity": "CHESSHEAT_ML_RUNTIME_V3",
+            "runtime_v3_pin_sha": "fake",
+            "nominal_root_population_digest": "fake",
+            "effective_root_population_digest": "fake",
+            "validation_population_digest": "fake",
+            "test_population_digest": "fake",
+            "epochs_completed": 10,
+            "best_epoch": 9,
+            "validation_trace": [0.0]*10,
+            "canonical_model_state_sha": "fake",
+            "test_root_ids": ["root1", "root2"],
+            "test_root_losses": {"root1": 0.5, "root2": 0.6}
+        }
+    
+    results = []
+    for c in ["mu_D", "mu_T", "B_daS", "B_perm"]:
+        for b in [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]:
+            for s in [1729, 2718, 31415, 65537, 104729]:
+                r = fake_res(c)
+                r["nominal_budget"] = b
+                r["seed"] = s
+                results.append(r)
+                
+    cp.check_analysis_gate = lambda: None
+    results_X = copy.deepcopy(results)
+    results_Y = copy.deepcopy(results)
+    for r in results_Y:
+        if r["condition"] == "B_perm":
+            r["test_root_losses"]["root1"] += 10.0
+            r["test_root_losses"]["root2"] += 10.0
+
+    seen_keys = []
+    original_bootstrap = cp.full_bootstrap_procedure
+    def mock_bootstrap(test_root_ids, mean_nlls):
+        seen_keys.append(list(mean_nlls.keys()))
+        return original_bootstrap(test_root_ids, mean_nlls)
+        
+    with patch("chessheat.cp_representation_efficiency.full_bootstrap_procedure", mock_bootstrap):
+        try:
+            out_X = cp.run_scientific_analysis(results_X)
+        except Exception as e:
+            print("run_scientific_analysis error X:", e)
+            raise
+        try:
+            out_Y = cp.run_scientific_analysis(results_Y)
+        except Exception as e:
+            print("run_scientific_analysis error Y:", e)
+            raise
+        
+    assert set(seen_keys[0]) == {"mu_D", "mu_T", "B_daS"}
+    assert set(seen_keys[1]) == {"mu_D", "mu_T", "B_daS"}
+    
+    assert out_X == out_Y
 
 def test_max_pair_mps_feasibility():
     import sys
@@ -902,6 +1408,7 @@ print("MAX_PAIR_MPS_FEASIBILITY_PASS")
     env["CHESSHEAT_MPS_ENABLED"] = "1"
     env["CHESSHEAT_ALLOW_CPU_FALLBACK"] = "0"
     env["CHESSHEAT_ML_RUNTIME_ID"] = "CHESSHEAT_ML_RUNTIME_V3"
+    env["CHESSHEAT_MPS_ENABLED"] = "0"
     env["PYTHONHASHSEED"] = "0"
     env["PYTORCH_MPS_FAST_MATH"] = "0"
     env["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"
@@ -964,7 +1471,7 @@ def main():
             ]
         }
     
-    train = [make_root(f"tr_{i}", "TRAIN") for i in range(250)]
+    train = [make_root(f"CHESSHEAT_TARGET_ROOT_{i}", "TRAIN") for i in range(250)]
     train.sort(key=lambda x: cp.canonical_budget_order(x["root_identity"]))
     val = [make_root(f"v_{i}", "VALIDATION") for i in range(2)]
     test = [make_root(f"te_{i}", "TEST") for i in range(2)]
@@ -1005,6 +1512,7 @@ if __name__ == "__main__":
     env["CHESSHEAT_MPS_ENABLED"] = "1"
     env["CHESSHEAT_ALLOW_CPU_FALLBACK"] = "0"
     env["CHESSHEAT_ML_RUNTIME_ID"] = "CHESSHEAT_ML_RUNTIME_V3"
+    env["CHESSHEAT_MPS_ENABLED"] = "0"
     env["PYTHONHASHSEED"] = "0"
     env["PYTORCH_MPS_FAST_MATH"] = "0"
     env["PYTORCH_ENABLE_MPS_FALLBACK"] = "0"

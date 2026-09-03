@@ -1,0 +1,44 @@
+{
+  "artifact_type": "IMPLEMENTATION_REAUDIT_SUPPLEMENT_1",
+  "implementation_version": "V14",
+  "production_implementation_sha": "dc0e74433f4dcebc94d87732ea8426878de1b5dca270eeebb12b9fef69f4d720",
+  "original_reaudit_artifact_status": "NONAUTHORITATIVE_SELF_ATTESTATION_PRESERVED",
+  "test_evidence": {
+    "root_weighted_proof": {
+      "backward_scalar_for_N_2_minibatch": 6.0,
+      "optimizer_steps_observed": {
+        "1": 1,
+        "63": 1,
+        "64": 1,
+        "65": 2,
+        "128": 2,
+        "129": 3
+      }
+    },
+    "early_stopping_proof": {
+      "status_machine_exercised": [
+        "STRICT_IMPROVE",
+        "EQUAL_NO_IMPROVE",
+        "NAN_INF_FAIL",
+        "MAX_EPOCHS_EXCEEDED"
+      ]
+    },
+    "checkpoint_proof": {
+      "test_eval_calls": 1
+    },
+    "canonical_model_digest_proof": {
+      "bytes_read": 64
+    },
+    "four_condition_proof": {
+      "muD_muT_BdaS_Bperm_ptensor_equality": "VERIFIED",
+      "BdaS_zero_map_equality": "VERIFIED"
+    },
+    "b_perm_exclusion_proof": {
+      "b_perm_test_loss_excluded_from_primary_aggregation": "VERIFIED"
+    },
+    "mps_feasibility_test_passed": true,
+    "fresh_process_determinism_test_passed": true,
+    "watchdog_ipc_test_passed": true,
+    "v14_schema_binding_test_passed": true
+  }
+}
