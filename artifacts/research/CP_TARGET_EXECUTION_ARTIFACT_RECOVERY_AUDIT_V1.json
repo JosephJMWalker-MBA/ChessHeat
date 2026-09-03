@@ -1,0 +1,51 @@
+{
+  "schema": "CP_TARGET_EXECUTION_ARTIFACT_RECOVERY_AUDIT_V1",
+  "incident_timestamp_utc": "2026-09-02T13:17:37Z",
+  "known_authoritative_identities": {
+    "target_raw_sha256": "d9b290bd44902559fd98f3b9c17b35b586ff72425cb2783b42cf76e200e81b00",
+    "target_raw_bytes": 770029516,
+    "label_compressed_sha256": "dea9346f9cb125f9c35e8824bb937daf4ea7fc51cff7f6c7c437caac8ae2c92d",
+    "label_compressed_bytes": 913691406,
+    "label_decompressed_sha256": "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2",
+    "label_decompressed_bytes": 3933405259
+  },
+  "surviving_dependencies": {
+    "source_raw_sha256": "7eb640c572dad4c6607cfb1b5ccf99597672042e5c516f131feab02223ccfa6b",
+    "target_acquisition_seal_v2_sha256": "1f17ac7e27531d27bc050d49a8a1e60aa5e0ab53c26f28b2540f868c27a43dad",
+    "target_label_seal_v1_sha256": "c53efd42bf56cebd8ebde7ed4a7abc6732454e5e77c40d30bde8b67eee11e937",
+    "target_label_seal_v2_sha256": "2e4735f40124f4eb7017ff816a4ea55e9f72ac559236a6077a0104273b1ab9c4",
+    "protocol_v7_sha256": "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef",
+    "manifest_sha256": "a4fd60e0fe3a54bd91435a7f2653cc3b7a4091710581d104a2efe302def402b7",
+    "target_label_runtime_pin": "dc707aa6d2709fcdfb108263356a8b0cab4cc459dffd29ba5524241f48ea3e22",
+    "target_label_requirements": "da56c02977e00d88d897af40d227d773822aa7134d30e1d40c68e1518d666026"
+  },
+  "search_locations": [
+    "repository workspace",
+    "mdfind (Spotlight)",
+    "lsof (open file descriptors)",
+    "tmutil (Time Machine backups)"
+  ],
+  "unsearched_inventory": [
+    "External backups (USB drives)",
+    "Cloud archives (iCloud Drive, Google Drive, AWS S3)",
+    "Prior machines",
+    "Network attached storage (NAS)"
+  ],
+  "backup_snapshot_availability": "Not available / Access denied (tmutil failed)",
+  "candidate_paths": [],
+  "candidate_hashes": [],
+  "recovery_status": {
+    "target_raw": "AUTHORITATIVE_TARGET_RAW_LOCAL_COPY_NOT_RECOVERED",
+    "compressed_labels": "AUTHORITATIVE_V6_LABEL_LOCAL_COPY_NOT_RECOVERED",
+    "uncompressed_labels": "AUTHORITATIVE_V6_LABEL_LOCAL_COPY_NOT_RECOVERED"
+  },
+  "git_clean_exposure": {
+    "artifacts/research/cp_target_acquisition_2026_07/raw/": "UNPROTECTED",
+    "artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v6.jsonl.zst": "UNPROTECTED",
+    "artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v6.jsonl": "UNPROTECTED"
+  },
+  "real_training_count": 0,
+  "scientific_analysis_performed": false,
+  "verdict": "AUTHORITATIVE_EXECUTION_ARTIFACTS_NOT_RECOVERED",
+  "next_blocker": "AUTHORITATIVE_ARTIFACT_RECONSTRUCTION_DECISION_REQUIRED"
+}
