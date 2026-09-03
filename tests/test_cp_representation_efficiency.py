@@ -387,150 +387,6 @@ def test_runner_no_authorization_zero_side_effects(tmp_path, monkeypatch):
     assert calls["cache"] == 0
     assert calls["pops"] == 0
     assert calls["jobs"] == 0
-def test_worker_binding(monkeypatch):
-    import chessheat.cp_representation_efficiency as cp
-    
-    class MockCache:
-        def __init__(self, path, expected_sha):
-            pass
-        def get_root(self, rid):
-            return {
-                "schema": "CP_TARGET_PAIR_LABEL_ROOT_V6",
-                "label_derivation_protocol": "CP_TARGET_LABEL_DERIVATION_V6",
-                "protocol_id": "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7",
-                "partition": "TRAIN" if "r" in rid else ("VALIDATION" if "v" in rid else "TEST"),
-                "root_identity": rid,
-                "sufficient_position": {"side_to_move": "w"},
-                "source_pair_count": 0,
-                "pairs": []
-            }
-    
-    monkeypatch.setattr(cp, "DerivedCache", MockCache)
-    
-    call_kwargs = []
-    def spy_run_training_job(**kwargs):
-        call_kwargs.append(kwargs)
-        return {
-            "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V12",
-            "condition": kwargs["condition"],
-            "nominal_budget": kwargs["nominal_budget"],
-            "seed": kwargs["seed"],
-            "nominal_root_count": len(kwargs["training_root_records"]),
-            "nominal_root_population_digest": kwargs["nominal_root_population_digest"],
-            "effective_training_root_count": len(kwargs["training_root_records"]),
-            "effective_root_population_digest": "eff_digest",
-            "validation_population_digest": kwargs["validation_population_digest"],
-            "test_population_digest": kwargs["test_population_digest"],
-            "best_epoch": 1,
-            "best_validation_root_nll": 0.5,
-            "epochs_completed": 1,
-            "validation_trace": [],
-            "test_evaluation_count": len(kwargs["test_root_records"]),
-            "test_root_ids": tuple(r["root_identity"] for r in kwargs["test_root_records"]),
-            "test_root_losses": [],
-            "canonical_model_state_sha": "a"*64
-        }
-        
-    monkeypatch.setattr(cp, "run_training_job", spy_run_training_job)
-    
-    class FakeSpec:
-        cache_path = "cache_path"
-        label_scientific_sha = "c"
-        condition = "mu_D"
-        nominal_budget = 250
-        seed = 1729
-        nominal_root_ids = tuple(["r1", "r2"])
-        nominal_root_population_digest = cp.canonical_root_population_digest(nominal_root_ids)
-        validation_root_ids = tuple(["v1"])
-        validation_population_digest = cp.canonical_root_population_digest(validation_root_ids)
-        test_root_ids = tuple(["t1"])
-        test_population_digest = cp.canonical_root_population_digest(test_root_ids)
-        approved_implementation_sha = "app_sha"
-        protocol_v7_sha = "prot_sha"
-        seal_v2_sha = "seal_sha"
-        runtime_v3_identity = "CHESSHEAT_ML_RUNTIME_V3"
-        runtime_v3_pin_sha = "rt_pin_sha"
-
-    spec = FakeSpec()
-    res = cp.run_downstream_worker(spec)
-    
-    assert len(call_kwargs) == 1
-    assert call_kwargs[0]["condition"] == spec.condition
-    assert call_kwargs[0]["nominal_budget"] == spec.nominal_budget
-    assert call_kwargs[0]["seed"] == spec.seed
-    
-    assert res["approved_implementation_sha"] == "app_sha"
-    
-    # Mutate a digest
-    spec.nominal_root_population_digest = "bad"
-    call_kwargs.clear()
-    import pytest
-    with pytest.raises(ValueError):
-        cp.run_downstream_worker(spec)
-    assert len(call_kwargs) == 0
-
-def test_parent_completeness_with_fake_worker(monkeypatch):
-    import chessheat.cp_representation_efficiency as cp
-    
-    def mock_verify_approved(*args, **kwargs): pass
-    def mock_check_auth(*args, **kwargs): pass
-    
-    class FakeEvId:
-        label_scientific_sha = "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2"
-        protocol_v7_sha = "prot"
-        seal_v2_sha = "seal"
-        runtime_v3_pin_sha = "rt"
-        
-    def mock_preflight(*args, **kwargs): return FakeEvId()
-    
-    monkeypatch.setattr(cp, "verify_approved_sha_gate", mock_verify_approved)
-    monkeypatch.setattr(cp, "check_real_training_authorization", mock_check_auth)
-    monkeypatch.setattr(cp, "verify_training_evidence_preflight", mock_preflight)
-    
-    class FakeCache:
-        def __init__(self, *args, **kwargs): pass
-    monkeypatch.setattr(cp, "DerivedCache", FakeCache)
-    
-    def mock_populations(*args, **kwargs):
-        train = ["r%d"%i for i in range(25000)]
-        budgets = [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
-        return train, budgets, ["v1"], ["t1"], "vd", "td", {b: str(b) for b in budgets}
-    monkeypatch.setattr(cp, "build_frozen_populations", mock_populations)
-    
-    def mock_run_job_specs(specs, worker_fn):
-        return [worker_fn(s) for s in specs]
-    monkeypatch.setattr(cp, "run_job_specs", mock_run_job_specs)
-    
-    def fake_worker(spec):
-        return {
-            "condition": spec.condition,
-            "nominal_budget": spec.nominal_budget,
-            "seed": spec.seed
-        }
-    monkeypatch.setattr(cp, "run_downstream_worker", fake_worker)
-    
-    # 1. Exact 160 works
-    res = cp.run_training_parent("app", "cache", "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2")
-    assert res == "STOP_BEFORE_SCIENTIFIC_ANALYSIS"
-    
-    # 2. Inject 159
-    original_run_job_specs = cp.run_job_specs
-    def mock_run_159(specs, worker):
-        res = original_run_job_specs(specs, worker)
-        return res[:-1]
-    monkeypatch.setattr(cp, "run_job_specs", mock_run_159)
-    import pytest
-    with pytest.raises(ValueError, match="incompleteness"):
-        cp.run_training_parent("app", "cache", "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2")
-        
-    # 3. Inject duplicate
-    def mock_run_dup(specs, worker):
-        res = original_run_job_specs(specs, worker)
-        return res + [res[0]]
-    monkeypatch.setattr(cp, "run_job_specs", mock_run_dup)
-    with pytest.raises(ValueError, match="incompleteness"):
-        cp.run_training_parent("app", "cache", "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2")
-
 def test_evidence_preflight_mutations_mocking(monkeypatch, tmp_path):
     import os, subprocess
     import chessheat.cp_representation_efficiency as cp
@@ -670,7 +526,7 @@ def test_validation_test_order_regression():
                 self.roots[f"x{i}"] = {"partition": "TRAIN", "source_pair_count": 1}
                 
         def get_root(self, rid, *args):
-            return {"root_identity": rid, "sufficient_position": {"side_to_move": "w"}, "target_label": None, "target_non_evaluable_reason": "TARGET_ACQUISITION_FAILURE"}
+            return {"schema": "CP_TARGET_PAIR_LABEL_ROOT_V6", "root_identity": rid, "sufficient_position": {"side_to_move": "w"}, "target_label": None, "target_non_evaluable_reason": "TARGET_ACQUISITION_FAILURE"}
 
     dummy_cache = DummyCacheOrder()
     
@@ -758,3 +614,163 @@ def test_index_only_drift_failure(monkeypatch, tmp_path):
 
     with pytest.raises(ValueError, match="Dirty working tree"):
         cp.verify_approved_sha_gate(commit_app, repo_root=str(repo))
+
+def test_worker_binding():
+    import chessheat.cp_representation_efficiency as cp
+    
+    spec = cp.JobSpec(
+        condition="C", nominal_budget=1, seed=1,
+        nominal_root_ids=["r1"], nominal_root_population_digest=cp.canonical_root_population_digest(["r1"]),
+        validation_root_ids=["v1"], validation_population_digest=cp.canonical_root_population_digest(["v1"]),
+        test_root_ids=["t1"], test_population_digest=cp.canonical_root_population_digest(["t1"]),
+        protocol_v7_sha="b", seal_v2_sha="c", label_scientific_sha="d",
+        runtime_v3_identity="e", runtime_v3_pin_sha="f",
+        approved_implementation_sha="a", cache_path=""
+    )
+    
+    original_rtj = cp.run_training_job
+    call_count = 0
+    valid_res = {
+        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V13",
+        "condition": "C",
+        "nominal_budget": 1,
+        "seed": 1,
+        "nominal_root_population_digest": cp.canonical_root_population_digest(["r1"]),
+        "validation_population_digest": cp.canonical_root_population_digest(["v1"]),
+        "test_population_digest": cp.canonical_root_population_digest(["t1"]),
+        "nominal_root_count": 1,
+        "effective_training_root_count": 1,
+        "effective_root_population_digest": "",
+        "best_epoch": 0,
+        "best_validation_root_nll": 0,
+        "epochs_completed": 0,
+        "validation_trace": [],
+        "test_evaluation_count": 1,
+        "test_root_ids": ("t1",),
+        "test_root_losses": {},
+        "canonical_model_state_sha": ""
+    }
+    
+    def mock_rtj(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return valid_res.copy()
+        
+    cp.run_training_job = mock_rtj
+    
+    # We must patch DerivedCache and read_and_validate_roots to avoid file reads
+    class MockCache:
+        def __init__(self, *args): pass
+        def get_root(self, rid, *args):
+            return {"schema": "CP_TARGET_PAIR_LABEL_ROOT_V6", "root_identity": rid, "sufficient_position": {"side_to_move": "w"}, "target_label": None, "target_non_evaluable_reason": "TARGET_ACQUISITION_FAILURE"}
+    
+    original_cache = cp.DerivedCache
+    cp.DerivedCache = MockCache
+    original_rv = cp.read_and_validate_roots
+    cp.read_and_validate_roots = lambda x: x
+    
+    try:
+        # positive
+        res = cp.run_downstream_worker(spec)
+        assert call_count == 1
+        assert res["schema"] == "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V13"
+        assert res["approved_implementation_sha"] == "a"
+        
+        # hostile mutations
+        import pytest
+        mutations = [
+            ("schema", "WRONG"),
+            ("condition", "WRONG"),
+            ("nominal_budget", 99),
+            ("seed", 99),
+            ("nominal_root_count", 99),
+            ("nominal_root_population_digest", "WRONG"),
+            ("validation_population_digest", "WRONG"),
+            ("test_population_digest", "WRONG"),
+            ("effective_training_root_count", 2), # > nominal
+            ("test_evaluation_count", 0),
+            ("test_root_ids", ("WRONG",))
+        ]
+        
+        for k, v in mutations:
+            def make_bad(k, v):
+                def bad_mock(*args, **kwargs):
+                    r = valid_res.copy()
+                    r[k] = v
+                    return r
+                return bad_mock
+            cp.run_training_job = make_bad(k, v)
+            with pytest.raises(ValueError):
+                cp.run_downstream_worker(spec)
+                
+    finally:
+        cp.run_training_job = original_rtj
+        cp.DerivedCache = original_cache
+        cp.read_and_validate_roots = original_rv
+
+def test_parent_completeness_with_fake_worker():
+    import chessheat.cp_representation_efficiency as cp
+    import pytest
+    
+    # create dummy job_specs
+    specs = [
+        cp.JobSpec("C", 1, 1, ["r"], "nd", ["v"], "vd", ["t"], "td", "b", "c", "d", "e", "f", "a", "")
+    ]
+    
+    valid_res = {
+        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V13",
+        "condition": "C", "nominal_budget": 1, "seed": 1,
+        "approved_implementation_sha": "a", "protocol_v7_sha": "b", "seal_v2_sha": "c",
+        "label_scientific_sha": "d", "runtime_v3_identity": "e", "runtime_v3_pin_sha": "f",
+        "nominal_root_population_digest": "nd", "validation_population_digest": "vd", "test_population_digest": "td",
+        "test_root_ids": ("t",)
+    }
+    
+    # 1. positive check
+    cp.validate_completed_worker_results(specs, [valid_res.copy()])
+    
+    # 2. negative checks
+    with pytest.raises(ValueError, match="Expected"):
+        cp.validate_completed_worker_results(specs, [])  # missing
+    with pytest.raises(ValueError, match="Expected"):
+        cp.validate_completed_worker_results(specs, [valid_res.copy(), valid_res.copy()])  # duplicate length
+        
+    specs_2 = [
+        cp.JobSpec("C", 1, 1, ["r"], "nd", ["v"], "vd", ["t"], "td", "b", "c", "d", "e", "f", "a", ""),
+        cp.JobSpec("C2", 1, 1, ["r"], "nd", ["v"], "vd", ["t"], "td", "b", "c", "d", "e", "f", "a", "")
+    ]
+    with pytest.raises(ValueError, match="incompleteness or duplicates"):
+        cp.validate_completed_worker_results(specs_2, [valid_res.copy(), valid_res.copy()])  # duplicate items
+        
+    mutations = [
+        ("schema", "WRONG"),
+        ("approved_implementation_sha", "WRONG"),
+        ("protocol_v7_sha", "WRONG"),
+        ("seal_v2_sha", "WRONG"),
+        ("label_scientific_sha", "WRONG"),
+        ("runtime_v3_identity", "WRONG"),
+        ("runtime_v3_pin_sha", "WRONG"),
+        ("nominal_root_population_digest", "WRONG"),
+        ("validation_population_digest", "WRONG"),
+        ("test_population_digest", "WRONG"),
+        ("test_root_ids", ("WRONG",))
+    ]
+    for k, v in mutations:
+        r = valid_res.copy()
+        r[k] = v
+        with pytest.raises(ValueError):
+            cp.validate_completed_worker_results(specs, [r])
+
+
+
+def _large_payload_worker(spec):
+    return {"data": "x" * (5 * 1024 * 1024)}
+
+def test_large_payload_scheduler():
+    import chessheat.cp_representation_efficiency as cp
+    
+    specs = [cp.JobSpec("C", 1, 1, ["r"], "nd", ["v"], "vd", ["t"], "td", "b", "c", "d", "e", "f", "a", "")]
+    
+    results = cp.run_job_specs(specs, _large_payload_worker)
+    assert len(results) == 1
+    assert len(results[0]["data"]) == 5 * 1024 * 1024

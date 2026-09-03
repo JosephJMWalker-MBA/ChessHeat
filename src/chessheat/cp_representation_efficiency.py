@@ -367,9 +367,9 @@ def run_training_job(
     training_root_records: List[Dict],
     validation_root_records: List[Dict],
     test_root_records: List[Dict],
-    nominal_root_population_digest: str = "",
-    validation_population_digest: str = "",
-    test_population_digest: str = ""
+    nominal_root_population_digest: str,
+    validation_population_digest: str,
+    test_population_digest: str
 ):
     if condition == "B_raw":
         raise ValueError("B_RAW_NOT_EXECUTED_IN_PRIMARY_V2_PIPELINE")
@@ -384,18 +384,17 @@ def run_training_job(
     if [r["root_identity"] for r in training_root_records] != [r["root_identity"] for r in sorted_recs][:nominal_budget]:
         raise ValueError("Invalid training roots prefix")
 
-    if nominal_root_population_digest:
-        calculated_train_digest = canonical_root_population_digest([r["root_identity"] for r in training_root_records])
-        if calculated_train_digest != nominal_root_population_digest:
-            raise ValueError("Train population digest mismatch")
-    if validation_population_digest:
-        calculated_val_digest = canonical_root_population_digest([r["root_identity"] for r in validation_root_records])
-        if calculated_val_digest != validation_population_digest:
-            raise ValueError("Validation population digest mismatch")
-    if test_population_digest:
-        calculated_test_digest = canonical_root_population_digest([r["root_identity"] for r in test_root_records])
-        if calculated_test_digest != test_population_digest:
-            raise ValueError("Test population digest mismatch")
+    calculated_train_digest = canonical_root_population_digest([r["root_identity"] for r in training_root_records])
+    if calculated_train_digest != nominal_root_population_digest:
+        raise ValueError("Train population digest mismatch")
+    
+    calculated_val_digest = canonical_root_population_digest([r["root_identity"] for r in validation_root_records])
+    if calculated_val_digest != validation_population_digest:
+        raise ValueError("Validation population digest mismatch")
+        
+    calculated_test_digest = canonical_root_population_digest([r["root_identity"] for r in test_root_records])
+    if calculated_test_digest != test_population_digest:
+        raise ValueError("Test population digest mismatch")
         
     ctx = configure_runtime(seed)
     torch = ctx.torch
@@ -489,7 +488,7 @@ def run_training_job(
     test_eval_count += 1
     
     return {
-        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V12",
+        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V13",
         "condition": condition,
         "nominal_budget": nominal_budget,
         "seed": seed,
@@ -741,19 +740,37 @@ def _process_wrapper(spec, worker_fn, q):
 
 def run_job_specs(job_specs: List[JobSpec], worker_fn):
     import multiprocessing
+    import queue
     results = []
     
     for spec in job_specs:
         q = multiprocessing.Queue()
         p = multiprocessing.Process(target=_process_wrapper, args=(spec, worker_fn, q))
         p.start()
+        
+        res_tuple = None
+        while True:
+            try:
+                res_tuple = q.get(timeout=1.0)
+                break
+            except queue.Empty:
+                if not p.is_alive():
+                    # check again to prevent race condition
+                    try:
+                        res_tuple = q.get_nowait()
+                        break
+                    except queue.Empty:
+                        break
+        
         p.join()
-
         
         if p.exitcode != 0:
             raise RuntimeError(f"Process crashed with exit code {p.exitcode}")
             
-        success, res = q.get()
+        if res_tuple is None:
+            raise RuntimeError("Process died without returning a result")
+            
+        success, res = res_tuple
         if not success:
             raise res
         results.append(res)
@@ -798,11 +815,32 @@ def run_downstream_worker(spec: JobSpec):
         test_population_digest=spec.test_population_digest,
     )
     
-    # Binding
-    if result["condition"] != spec.condition: raise ValueError("Condition mismatch")
-    if result["nominal_budget"] != spec.nominal_budget: raise ValueError("Budget mismatch")
-    if result["seed"] != spec.seed: raise ValueError("Seed mismatch")
+    # Binding and Validating Result
+    if result.get("schema") not in ["CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V12", "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V13"]:
+        raise ValueError("Invalid schema returned by training job")
+    if result.get("condition") != spec.condition: raise ValueError("Condition mismatch")
+    if result.get("nominal_budget") != spec.nominal_budget: raise ValueError("Budget mismatch")
+    if result.get("seed") != spec.seed: raise ValueError("Seed mismatch")
     
+    if result.get("nominal_root_count") != len(spec.nominal_root_ids) or result.get("nominal_root_count") != spec.nominal_budget:
+        raise ValueError("nominal_root_count mismatch")
+        
+    if not (0 <= result.get("effective_training_root_count", -1) <= result.get("nominal_root_count")):
+        raise ValueError("effective_training_root_count bounds error")
+        
+    if result.get("test_evaluation_count") != 1:
+        raise ValueError("test_evaluation_count != 1")
+        
+    if tuple(result.get("test_root_ids", ())) != tuple(spec.test_root_ids):
+        raise ValueError("test_root_ids mismatch")
+        
+    if result.get("nominal_root_population_digest") != spec.nominal_root_population_digest:
+        raise ValueError("Nominal population digest mismatch in training result")
+    if result.get("validation_population_digest") != spec.validation_population_digest:
+        raise ValueError("Validation population digest mismatch in training result")
+    if result.get("test_population_digest") != spec.test_population_digest:
+        raise ValueError("Test population digest mismatch in training result")
+        
     result["approved_implementation_sha"] = spec.approved_implementation_sha
     result["protocol_v7_sha"] = spec.protocol_v7_sha
     result["seal_v2_sha"] = spec.seal_v2_sha
@@ -811,6 +849,48 @@ def run_downstream_worker(spec: JobSpec):
     result["runtime_v3_pin_sha"] = spec.runtime_v3_pin_sha
     
     return result
+
+def validate_completed_worker_results(job_specs: List[JobSpec], results: List[Dict]):
+    if len(results) != len(job_specs):
+        raise ValueError(f"Expected {len(job_specs)} results, got {len(results)}")
+        
+    expected_tuples = {(spec.condition, spec.nominal_budget, spec.seed) for spec in job_specs}
+    actual_tuples = {(res["condition"], res["nominal_budget"], res["seed"]) for res in results}
+    if actual_tuples != expected_tuples or len(actual_tuples) != len(job_specs):
+        raise ValueError("Results tuples incompleteness or duplicates")
+        
+    res_dict = {(res["condition"], res["nominal_budget"], res["seed"]): res for res in results}
+    
+    for spec in job_specs:
+        res = res_dict[(spec.condition, spec.nominal_budget, spec.seed)]
+        
+        if res["schema"] not in ["CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V12", "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V13"]:
+            raise ValueError("Schema mismatch in parent validation")
+            
+        if res["approved_implementation_sha"] != spec.approved_implementation_sha:
+            raise ValueError("approved_implementation_sha mismatch")
+        if res["protocol_v7_sha"] != spec.protocol_v7_sha:
+            raise ValueError("protocol_v7_sha mismatch")
+        if res["seal_v2_sha"] != spec.seal_v2_sha:
+            raise ValueError("seal_v2_sha mismatch")
+        if res["label_scientific_sha"] != spec.label_scientific_sha:
+            raise ValueError("label_scientific_sha mismatch")
+        if res["runtime_v3_identity"] != spec.runtime_v3_identity:
+            raise ValueError("runtime_v3_identity mismatch")
+        if res["runtime_v3_pin_sha"] != spec.runtime_v3_pin_sha:
+            raise ValueError("runtime_v3_pin_sha mismatch")
+            
+        if res["nominal_root_population_digest"] != spec.nominal_root_population_digest:
+            raise ValueError("nominal_root_population_digest mismatch")
+        if res["validation_population_digest"] != spec.validation_population_digest:
+            raise ValueError("validation_population_digest mismatch")
+        if res["test_population_digest"] != spec.test_population_digest:
+            raise ValueError("test_population_digest mismatch")
+            
+        if tuple(res["test_root_ids"]) != tuple(spec.test_root_ids):
+            raise ValueError("test_root_ids mismatch in parent")
+            
+    return "PASS"
 
 def run_training_parent(approved_sha: str, cache_path: str, cache_sha: str, repo_root: str = "."):
     verify_approved_sha_gate(approved_sha, repo_root)
@@ -825,12 +905,7 @@ def run_training_parent(approved_sha: str, cache_path: str, cache_sha: str, repo
     job_specs = build_job_specs(populations, ev_id, cache_path, approved_sha)
     
     results = run_job_specs(job_specs, run_downstream_worker)
-    
-    expected_tuples = {(spec.condition, spec.nominal_budget, spec.seed) for spec in job_specs}
-    actual_tuples = {(res["condition"], res["nominal_budget"], res["seed"]) for res in results}
-    if actual_tuples != expected_tuples or len(results) != 160 or len(actual_tuples) != 160:
-        raise ValueError("Results tuples incompleteness")
-        
+    validate_completed_worker_results(job_specs, results)
     return "STOP_BEFORE_SCIENTIFIC_ANALYSIS"
 
 
