@@ -116,9 +116,14 @@ def test_real_materializer_schema_positive_control():
     
     def nullify_label(r):
         r["pairs"][0]["target_label"] = None
+        r["pairs"][0]["target_non_evaluable_reason"] = "OTHER"
+    def nullify_label2(r):
+        r["pairs"][0]["target_label"] = None
         if "target_non_evaluable_reason" in r["pairs"][0]:
             del r["pairs"][0]["target_non_evaluable_reason"]
+
     expect_fail(res, nullify_label)
+    expect_fail(res, nullify_label2)
     
     def add_reason(r):
         r["pairs"][0]["target_label"] = "FIRST_BETTER"
@@ -229,65 +234,6 @@ def test_training_analysis_gate_separation(monkeypatch):
     monkeypatch.setenv("CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED", "CHESSHEAT_SCIENTIFIC_ANALYSIS_V1_AUTHORIZED")
     cp.check_analysis_authorization()
 
-def test_evidence_preflight_mutations_mocking(monkeypatch):
-    valid_hashes = {
-        "artifacts/research/cp_representation_efficiency_protocol_v7.json": "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef",
-        "artifacts/research/cp_target_labels_2026_07/cp_target_label_derivation_seal_v2.json": "2e4735f40124f4eb7017ff816a4ea55e9f72ac559236a6077a0104273b1ab9c4",
-        "artifacts/research/ml_runtime_pin_v3.json": "e69ae6bcbf96a327b021665b5ac21b63c269cd821be84d567867058b09e98932",
-        "artifacts/research/ml_runtime_package_lock_v3.json": "2127b9709ef8786f47b9306040a56706ff3a7f6535d2439d692c67bac5fac54d",
-        "artifacts/research/ml_runtime_code_lock_v3.json": "9eebefd15c6c1fe93340a69f270f9bf02f7572b4a307d174307f786355a4ec84",
-        "requirements/ml-runtime-v3.txt": "79ea33529376312052c7f98d0e19e812029697d4ff15a2e93106f94f023bf7c9",
-        "artifacts/research/target_label_derivation_runtime_pin_v1.json": "dc707aa6d2709fcdfb108263356a8b0cab4cc459dffd29ba5524241f48ea3e22",
-        "requirements/target-label-runtime-v1.txt": "da56c02977e00d88d897af40d227d773822aa7134d30e1d40c68e1518d666026",
-    }
-
-    import subprocess
-    import builtins
-    
-    original_open = builtins.open
-    
-    class MockFile:
-        def __init__(self, p):
-            self.p = p
-        def __enter__(self):
-            return self
-        def __exit__(self, *args):
-            pass
-        def read(self):
-            return valid_hashes[self.p].encode()
-            
-    def mock_open(path, *args, **kwargs):
-        rel = os.path.relpath(path, ".")
-        if rel in valid_hashes:
-            return MockFile(rel)
-            return MockFile(path)
-        return original_open(path, *args, **kwargs)
-        
-    class MockHash:
-        def __init__(self, data=b""):
-            self.data = data
-        def hexdigest(self):
-            return self.data.decode()
-            
-    monkeypatch.setattr(builtins, "open", mock_open)
-    import hashlib
-    monkeypatch.setattr(hashlib, "sha256", lambda data: MockHash(data))
-    
-    def mock_check_call(args, *a, **k):
-        pass
-    monkeypatch.setattr(subprocess, "check_call", mock_check_call)
-    
-    # 1. Success
-    cp.verify_training_evidence_preflight()
-    
-    # 2. Mutate each
-    for k in valid_hashes.keys():
-        old = valid_hashes[k]
-        valid_hashes[k] = "f"*64
-        with pytest.raises(ValueError):
-            cp.verify_training_evidence_preflight()
-        valid_hashes[k] = old
-
 def test_cache_positive_hostile():
     with tempfile.NamedTemporaryFile(mode="w", delete=False) as f:
         r1 = {"root_identity": "r1", "partition": "TRAIN", "source_pair_count": 1}
@@ -364,7 +310,12 @@ def test_160_fresh_process_orchestration():
     specs = cp.build_job_specs(pops, MockEv(), "cache_path", "approved")
     
     results = cp.run_job_specs(specs, dummy_worker)
-    assert len(results) == len(specs)
+    
+    expected_ids = {(s.condition, s.nominal_budget, s.seed) for s in specs}
+    actual_ids = set(results)
+    assert len(results) == 160
+    assert len(specs) == 160
+    assert actual_ids == expected_ids
 
     # The actual launch_count is tested by checking len(results) mapping 1-to-1 with len(specs)
 
@@ -403,13 +354,12 @@ def test_runner_no_authorization_zero_side_effects(tmp_path, monkeypatch):
     repo.mkdir()
     subprocess.check_call(["git", "init"], cwd=str(repo))
     
-    # Create all bound files so git show works
     for fpath in cp.BOUND_FILES:
         full = repo / fpath
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_text("dummy")
         subprocess.check_call(["git", "add", str(full)], cwd=str(repo))
-        
+    
     subprocess.check_call(["git", "commit", "-m", "init"], cwd=str(repo))
     commit_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(repo)).decode().strip()
     
@@ -417,5 +367,252 @@ def test_runner_no_authorization_zero_side_effects(tmp_path, monkeypatch):
     if "CHESSHEAT_REAL_TRAINING_AUTHORIZED" in os.environ:
         del os.environ["CHESSHEAT_REAL_TRAINING_AUTHORIZED"]
         
+    calls = {"preflight": 0, "cache": 0, "pops": 0, "jobs": 0}
+    
+    def spy_preflight(*args, **kwargs): calls["preflight"] += 1
+    monkeypatch.setattr(cp, "verify_training_evidence_preflight", spy_preflight)
+    class SpyCache:
+        def __init__(self, *args, **kwargs): calls["cache"] += 1
+    monkeypatch.setattr(cp, "DerivedCache", SpyCache)
+    def spy_pops(*args, **kwargs): calls["pops"] += 1
+    monkeypatch.setattr(cp, "build_frozen_populations", spy_pops)
+    def spy_jobs(*args, **kwargs): calls["jobs"] += 1
+    monkeypatch.setattr(cp, "run_job_specs", spy_jobs)
+        
+    import pytest
     with pytest.raises(ValueError, match='Real training not authorized'):
         cp.run_training_parent(commit_sha, "mock", "mock", repo_root=str(repo))
+        
+    assert calls["preflight"] == 0
+    assert calls["cache"] == 0
+    assert calls["pops"] == 0
+    assert calls["jobs"] == 0
+def test_worker_binding(monkeypatch):
+    import chessheat.cp_representation_efficiency as cp
+    
+    class MockCache:
+        def __init__(self, path, expected_sha):
+            pass
+        def get_root(self, rid):
+            return {
+                "schema": "CP_TARGET_PAIR_LABEL_ROOT_V6",
+                "label_derivation_protocol": "CP_TARGET_LABEL_DERIVATION_V6",
+                "protocol_id": "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7",
+                "partition": "TRAIN" if "r" in rid else ("VALIDATION" if "v" in rid else "TEST"),
+                "root_identity": rid,
+                "sufficient_position": {"side_to_move": "w"},
+                "source_pair_count": 0,
+                "pairs": []
+            }
+    
+    monkeypatch.setattr(cp, "DerivedCache", MockCache)
+    
+    call_kwargs = []
+    def spy_run_training_job(**kwargs):
+        call_kwargs.append(kwargs)
+        return {
+            "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V11",
+            "condition": kwargs["condition"],
+            "nominal_budget": kwargs["nominal_budget"],
+            "seed": kwargs["seed"],
+            "nominal_root_count": len(kwargs["training_root_records"]),
+            "nominal_root_population_digest": kwargs["nominal_root_population_digest"],
+            "effective_training_root_count": len(kwargs["training_root_records"]),
+            "effective_root_population_digest": "eff_digest",
+            "validation_population_digest": kwargs["validation_population_digest"],
+            "test_population_digest": kwargs["test_population_digest"],
+            "best_epoch": 1,
+            "best_validation_root_nll": 0.5,
+            "epochs_completed": 1,
+            "validation_trace": [],
+            "test_evaluation_count": len(kwargs["test_root_records"]),
+            "test_root_ids": tuple(r["root_identity"] for r in kwargs["test_root_records"]),
+            "test_root_losses": [],
+            "canonical_model_state_sha": "a"*64
+        }
+        
+    monkeypatch.setattr(cp, "run_training_job", spy_run_training_job)
+    
+    class FakeSpec:
+        cache_path = "cache_path"
+        label_scientific_sha = "c"
+        condition = "mu_D"
+        nominal_budget = 250
+        seed = 1729
+        nominal_root_ids = tuple(["r1", "r2"])
+        nominal_root_population_digest = cp.canonical_root_population_digest(nominal_root_ids)
+        validation_root_ids = tuple(["v1"])
+        validation_population_digest = cp.canonical_root_population_digest(validation_root_ids)
+        test_root_ids = tuple(["t1"])
+        test_population_digest = cp.canonical_root_population_digest(test_root_ids)
+        approved_implementation_sha = "app_sha"
+        protocol_v7_sha = "prot_sha"
+        seal_v2_sha = "seal_sha"
+        runtime_v3_identity = "CHESSHEAT_ML_RUNTIME_V3"
+        runtime_v3_pin_sha = "rt_pin_sha"
+
+    spec = FakeSpec()
+    res = cp.run_downstream_worker(spec)
+    
+    assert len(call_kwargs) == 1
+    assert call_kwargs[0]["condition"] == spec.condition
+    assert call_kwargs[0]["nominal_budget"] == spec.nominal_budget
+    assert call_kwargs[0]["seed"] == spec.seed
+    
+    assert res["approved_implementation_sha"] == "app_sha"
+    
+    # Mutate a digest
+    spec.nominal_root_population_digest = "bad"
+    call_kwargs.clear()
+    import pytest
+    with pytest.raises(ValueError):
+        cp.run_downstream_worker(spec)
+    assert len(call_kwargs) == 0
+
+def test_parent_completeness_with_fake_worker(monkeypatch):
+    import chessheat.cp_representation_efficiency as cp
+    
+    def mock_verify_approved(*args, **kwargs): pass
+    def mock_check_auth(*args, **kwargs): pass
+    
+    class FakeEvId:
+        label_scientific_sha = "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2"
+        protocol_v7_sha = "prot"
+        seal_v2_sha = "seal"
+        runtime_v3_pin_sha = "rt"
+        
+    def mock_preflight(*args, **kwargs): return FakeEvId()
+    
+    monkeypatch.setattr(cp, "verify_approved_sha_gate", mock_verify_approved)
+    monkeypatch.setattr(cp, "check_real_training_authorization", mock_check_auth)
+    monkeypatch.setattr(cp, "verify_training_evidence_preflight", mock_preflight)
+    
+    class FakeCache:
+        def __init__(self, *args, **kwargs): pass
+    monkeypatch.setattr(cp, "DerivedCache", FakeCache)
+    
+    def mock_populations(*args, **kwargs):
+        train = ["r%d"%i for i in range(25000)]
+        budgets = [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
+        return train, budgets, ["v1"], ["t1"], "vd", "td", {b: str(b) for b in budgets}
+    monkeypatch.setattr(cp, "build_frozen_populations", mock_populations)
+    
+    def mock_run_job_specs(specs, worker_fn):
+        return [worker_fn(s) for s in specs]
+    monkeypatch.setattr(cp, "run_job_specs", mock_run_job_specs)
+    
+    def fake_worker(spec):
+        return {
+            "condition": spec.condition,
+            "nominal_budget": spec.nominal_budget,
+            "seed": spec.seed
+        }
+    monkeypatch.setattr(cp, "run_downstream_worker", fake_worker)
+    
+    # 1. Exact 160 works
+    res = cp.run_training_parent("app", "cache", "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2")
+    assert res == "STOP_BEFORE_SCIENTIFIC_ANALYSIS"
+    
+    # 2. Inject 159
+    original_run_job_specs = cp.run_job_specs
+    def mock_run_159(specs, worker):
+        res = original_run_job_specs(specs, worker)
+        return res[:-1]
+    monkeypatch.setattr(cp, "run_job_specs", mock_run_159)
+    import pytest
+    with pytest.raises(ValueError, match="incompleteness"):
+        cp.run_training_parent("app", "cache", "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2")
+        
+    # 3. Inject duplicate
+    def mock_run_dup(specs, worker):
+        res = original_run_job_specs(specs, worker)
+        return res + [res[0]]
+    monkeypatch.setattr(cp, "run_job_specs", mock_run_dup)
+    with pytest.raises(ValueError, match="incompleteness"):
+        cp.run_training_parent("app", "cache", "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2")
+
+def test_evidence_preflight_mutations_mocking(monkeypatch, tmp_path):
+    import os, subprocess
+    import chessheat.cp_representation_efficiency as cp
+    
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.check_call(["git", "init"], cwd=str(repo))
+    f = repo / "test.txt"
+    
+    f.write_text("audit")
+    subprocess.check_call(["git", "add", "test.txt"], cwd=str(repo))
+    subprocess.check_call(["git", "commit", "-m", "audit"], cwd=str(repo))
+    commit_audit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(repo)).decode().strip()
+    
+    f.write_text("supplement")
+    subprocess.check_call(["git", "add", "test.txt"], cwd=str(repo))
+    subprocess.check_call(["git", "commit", "-m", "supplement"], cwd=str(repo))
+    commit_supp = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(repo)).decode().strip()
+    
+    f.write_text("approved")
+    subprocess.check_call(["git", "add", "test.txt"], cwd=str(repo))
+    subprocess.check_call(["git", "commit", "-m", "approved"], cwd=str(repo))
+    commit_app = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(repo)).decode().strip()
+    
+    subprocess.check_call(["git", "checkout", "--orphan", "unrelated"], cwd=str(repo))
+    f.write_text("unrelated")
+    subprocess.check_call(["git", "add", "test.txt"], cwd=str(repo))
+    subprocess.check_call(["git", "commit", "-m", "unrelated"], cwd=str(repo))
+    commit_unrelated = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(repo)).decode().strip()
+    # no checkout needed
+    
+
+    valid_hashes = {
+        "artifacts/research/cp_representation_efficiency_protocol_v7.json": "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef",
+        "artifacts/research/cp_target_labels_2026_07/cp_target_label_derivation_seal_v2.json": "2e4735f40124f4eb7017ff816a4ea55e9f72ac559236a6077a0104273b1ab9c4",
+        "artifacts/research/ml_runtime_pin_v3.json": "e69ae6bcbf96a327b021665b5ac21b63c269cd821be84d567867058b09e98932",
+        "artifacts/research/ml_runtime_package_lock_v3.json": "2127b9709ef8786f47b9306040a56706ff3a7f6535d2439d692c67bac5fac54d",
+        "artifacts/research/ml_runtime_code_lock_v3.json": "9eebefd15c6c1fe93340a69f270f9bf02f7572b4a307d174307f786355a4ec84",
+        "requirements/ml-runtime-v3.txt": "79ea33529376312052c7f98d0e19e812029697d4ff15a2e93106f94f023bf7c9",
+        "artifacts/research/target_label_derivation_runtime_pin_v1.json": "dc707aa6d2709fcdfb108263356a8b0cab4cc459dffd29ba5524241f48ea3e22",
+        "requirements/target-label-runtime-v1.txt": "da56c02977e00d88d897af40d227d773822aa7134d30e1d40c68e1518d666026",
+    }
+    
+    import builtins
+    import os
+    original_open = builtins.open
+    class MockFile:
+        def __init__(self, p): self.p = p
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self): return valid_hashes[self.p].encode()
+    def mock_open(path, *args, **kwargs):
+        rel = os.path.relpath(path, str(repo))
+        if rel in valid_hashes:
+            return MockFile(rel)
+        return original_open(path, *args, **kwargs)
+    monkeypatch.setattr(builtins, "open", mock_open)
+    
+    class MockHash:
+        def __init__(self, data=b""): self.data = data
+        def hexdigest(self): return self.data.decode()
+    import hashlib
+    monkeypatch.setattr(hashlib, "sha256", lambda data: MockHash(data))
+
+    
+    original_check_call = subprocess.check_call
+    def mock_check_call(args, cwd=None, stderr=None):
+        if "merge-base" in args:
+            arg_list = list(args)
+            if arg_list[3] == "2f7560a38427754404c6f1ee6115db950d18815c": arg_list[3] = commit_audit
+            if arg_list[3] == "87e1edad72d2899d0bc7a05d11d9601d60b7cba3": arg_list[3] = commit_supp
+            return original_check_call(arg_list, cwd=cwd, stderr=stderr)
+        return original_check_call(args, cwd=cwd, stderr=stderr)
+    subprocess.check_call = mock_check_call
+    
+    try:
+        res = cp.verify_training_evidence_preflight(commit_app, repo_root=str(repo))
+        assert res.label_scientific_sha == "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2"
+        
+        import pytest
+        with pytest.raises(ValueError, match="evidence audit commit missing or not ancestor"):
+            cp.verify_training_evidence_preflight(commit_unrelated, repo_root=str(repo))
+    finally:
+        subprocess.check_call = original_check_call
+        

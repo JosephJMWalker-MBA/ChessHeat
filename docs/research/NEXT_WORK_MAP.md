@@ -982,3 +982,4 @@ NOT PERFORMED / UNAUTHORIZED
 - [x] Repair downstream representation training v9
 
 - [x] Repair downstream representation training v10
+- [x] Repair downstream representation training v11

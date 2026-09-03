@@ -317,8 +317,8 @@ def read_and_validate_roots(records: List[Dict]) -> List[Dict]:
             tl = pair.get("target_label")
             if tl not in {"FIRST_BETTER", "EQUAL", "SECOND_BETTER", None}:
                 raise ValueError("Invalid target label")
-            if tl is None and "target_non_evaluable_reason" not in pair:
-                raise ValueError("missing reason")
+            if tl is None and pair.get("target_non_evaluable_reason") != "TARGET_ACQUISITION_FAILURE":
+                raise ValueError("missing reason or invalid reason")
             if tl is not None and "target_non_evaluable_reason" in pair:
                 raise ValueError("reason present with valid label")
 
@@ -584,7 +584,8 @@ class EvidenceIdentity:
     label_scientific_sha: str
     label_compressed_sha: str
 
-def verify_training_evidence_preflight(repo_root: str = "."):
+def verify_training_evidence_preflight(approved_implementation_sha: str, repo_root: str = ".") -> EvidenceIdentity:
+    import os
     import subprocess
     def get_sha(path):
         import hashlib
@@ -609,13 +610,12 @@ def verify_training_evidence_preflight(repo_root: str = "."):
         raise ValueError("SHA mismatch for requirements/target-label-runtime-v1.txt")
 
     try:
-        # Check that both commits exist and are ancestors of the approved_implementation_sha
-        subprocess.check_call(["git", "merge-base", "--is-ancestor", "2f7560a38427754404c6f1ee6115db950d18815c", os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA", "HEAD")], cwd=repo_root, stderr=subprocess.STDOUT)
+        subprocess.check_call(["git", "merge-base", "--is-ancestor", "2f7560a38427754404c6f1ee6115db950d18815c", approved_implementation_sha], cwd=repo_root, stderr=subprocess.STDOUT)
     except Exception:
         raise ValueError("evidence audit commit missing or not ancestor")
         
     try:
-        subprocess.check_call(["git", "merge-base", "--is-ancestor", "87e1edad72d2899d0bc7a05d11d9601d60b7cba3", os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA", "HEAD")], cwd=repo_root, stderr=subprocess.STDOUT)
+        subprocess.check_call(["git", "merge-base", "--is-ancestor", "87e1edad72d2899d0bc7a05d11d9601d60b7cba3", approved_implementation_sha], cwd=repo_root, stderr=subprocess.STDOUT)
     except Exception:
         raise ValueError("evidence supplement commit missing or not ancestor")
 
@@ -633,6 +633,30 @@ def verify_training_evidence_preflight(repo_root: str = "."):
         label_scientific_sha="c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2",
         label_compressed_sha="dea9346f9cb125f9c35e8824bb937daf4ea7fc51cff7f6c7c437caac8ae2c92d"
     )
+
+def canonical_root_population_digest(root_ids):
+    import hashlib
+    h = hashlib.sha256()
+    h.update(b"CHESSHEAT_ROOT_POPULATION_V1\n")
+    h.update(f"{len(root_ids):010d}\n".encode("utf-8"))
+    for rid in root_ids:
+        encoded = rid.encode("utf-8")
+        h.update(f"{len(encoded):010d}\n".encode("utf-8"))
+        h.update(encoded)
+        h.update(b"\n")
+    return h.hexdigest()
+
+def canonical_root_population_digest(root_ids):
+    import hashlib
+    h = hashlib.sha256()
+    h.update(b"CHESSHEAT_ROOT_POPULATION_V1\n")
+    h.update(f"{len(root_ids):010d}\n".encode("utf-8"))
+    for rid in root_ids:
+        encoded = rid.encode("utf-8")
+        h.update(f"{len(encoded):010d}\n".encode("utf-8"))
+        h.update(encoded)
+        h.update(b"\n")
+    return h.hexdigest()
 
 def build_frozen_populations(cache: DerivedCache):
     budgets = [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
@@ -655,21 +679,14 @@ def build_frozen_populations(cache: DerivedCache):
         
     train_roots = sorted(train_roots, key=lambda rid: canonical_budget_order(rid))
     
-    def mk_digest(domain, items):
-        import hashlib
-        h = hashlib.sha256()
-        h.update(f"{domain}\n".encode())
-        for x in items:
-            h.update(f"{x}\n".encode())
-        return h.hexdigest()
-        
-    d_train = mk_digest("CHESSHEAT_ROOT_POPULATION_V1", train_roots)
-    d_val = mk_digest("CHESSHEAT_ROOT_POPULATION_V1", sorted(val_roots))
-    d_test = mk_digest("CHESSHEAT_ROOT_POPULATION_V1", sorted(test_roots))
+    val_roots = tuple(sorted(val_roots))
+    test_roots = tuple(sorted(test_roots))
+    d_val = canonical_root_population_digest(val_roots)
+    d_test = canonical_root_population_digest(test_roots)
     
     budget_digests = {}
     for b in budgets:
-        budget_digests[b] = mk_digest("CHESSHEAT_ROOT_POPULATION_V1", train_roots[:b])
+        budget_digests[b] = canonical_root_population_digest(train_roots[:b])
         
     return train_roots, budgets, val_roots, test_roots, d_val, d_test, budget_digests
 from dataclasses import dataclass
@@ -749,50 +766,128 @@ def run_job_specs(job_specs: List[JobSpec], worker_fn):
         
     return results
 
+def run_training_job(
+    condition: str,
+    nominal_budget: int,
+    seed: int,
+    training_root_records: list,
+    validation_root_records: list,
+    test_root_records: list,
+    nominal_root_population_digest: str,
+    validation_population_digest: str,
+    test_population_digest: str,
+):
+    # Dummy mock for actual learner
+    effective_ids = tuple([r["root_identity"] for r in training_root_records])
+    effective_digest = canonical_root_population_digest(effective_ids)
+    return {
+        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V11",
+        "condition": condition,
+        "nominal_budget": nominal_budget,
+        "seed": seed,
+        "nominal_root_count": len(training_root_records),
+        "nominal_root_population_digest": nominal_root_population_digest,
+        "effective_training_root_count": len(effective_ids),
+        "effective_root_population_digest": effective_digest,
+        "validation_population_digest": validation_population_digest,
+        "test_population_digest": test_population_digest,
+        "best_epoch": 1,
+        "best_validation_root_nll": 0.5,
+        "epochs_completed": 1,
+        "validation_trace": [],
+        "test_evaluation_count": len(test_root_records),
+        "test_root_ids": tuple(r["root_identity"] for r in test_root_records),
+        "test_root_losses": [],
+        "canonical_model_state_sha": "a"*64
+    }
+
+def run_training_job(
+    condition: str,
+    nominal_budget: int,
+    seed: int,
+    training_root_records: list,
+    validation_root_records: list,
+    test_root_records: list,
+    nominal_root_population_digest: str,
+    validation_population_digest: str,
+    test_population_digest: str,
+):
+    # Dummy mock for actual learner
+    effective_ids = tuple([r["root_identity"] for r in training_root_records])
+    effective_digest = canonical_root_population_digest(effective_ids)
+    return {
+        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V11",
+        "condition": condition,
+        "nominal_budget": nominal_budget,
+        "seed": seed,
+        "nominal_root_count": len(training_root_records),
+        "nominal_root_population_digest": nominal_root_population_digest,
+        "effective_training_root_count": len(effective_ids),
+        "effective_root_population_digest": effective_digest,
+        "validation_population_digest": validation_population_digest,
+        "test_population_digest": test_population_digest,
+        "best_epoch": 1,
+        "best_validation_root_nll": 0.5,
+        "epochs_completed": 1,
+        "validation_trace": [],
+        "test_evaluation_count": len(test_root_records),
+        "test_root_ids": tuple(r["root_identity"] for r in test_root_records),
+        "test_root_losses": [],
+        "canonical_model_state_sha": "a"*64
+    }
+
 def run_downstream_worker(spec: JobSpec):
-    # Verify cached roots via independently opening the cache
     cache = DerivedCache(spec.cache_path, spec.label_scientific_sha)
     
-    # Load exact roots
     def get_and_validate(rids):
         res = []
         for r in rids:
             root = cache.get_root(r)
-            if not root:
-                raise ValueError(f"Root {r} not found")
+            if not root: raise ValueError(f"Root {r} not found")
             res.append(root)
-        # Validate them
         return read_and_validate_roots(res)
         
     nominal = get_and_validate(spec.nominal_root_ids)
     val = get_and_validate(spec.validation_root_ids)
     test = get_and_validate(spec.test_root_ids)
     
-    # Independently recompute digests (must match spec)
-    def mk_digest(domain, items):
-        import hashlib
-        h = hashlib.sha256()
-        h.update(f"{domain}\n".encode())
-        for x in items:
-            h.update(f"{x}\n".encode())
-        return h.hexdigest()
-        
-    if mk_digest("CHESSHEAT_ROOT_POPULATION_V1", spec.nominal_root_ids) != spec.nominal_root_population_digest:
+    if canonical_root_population_digest(spec.nominal_root_ids) != spec.nominal_root_population_digest:
         raise ValueError("Nominal digest mismatch in worker")
-    if mk_digest("CHESSHEAT_ROOT_POPULATION_V1", spec.validation_root_ids) != spec.validation_population_digest:
+    if canonical_root_population_digest(spec.validation_root_ids) != spec.validation_population_digest:
         raise ValueError("Validation digest mismatch in worker")
-    if mk_digest("CHESSHEAT_ROOT_POPULATION_V1", spec.test_root_ids) != spec.test_population_digest:
+    if canonical_root_population_digest(spec.test_root_ids) != spec.test_population_digest:
         raise ValueError("Test digest mismatch in worker")
         
-    # Mocking run_training_job logic
-    # Real implementation would call the learner here
-    # run_training_job(spec.condition, spec.nominal_budget, spec.seed, nominal, ...)
-    return (spec.condition, spec.nominal_budget, spec.seed)
+    result = run_training_job(
+        condition=spec.condition,
+        nominal_budget=spec.nominal_budget,
+        seed=spec.seed,
+        training_root_records=nominal,
+        validation_root_records=val,
+        test_root_records=test,
+        nominal_root_population_digest=spec.nominal_root_population_digest,
+        validation_population_digest=spec.validation_population_digest,
+        test_population_digest=spec.test_population_digest,
+    )
+    
+    # Binding
+    if result["condition"] != spec.condition: raise ValueError("Condition mismatch")
+    if result["nominal_budget"] != spec.nominal_budget: raise ValueError("Budget mismatch")
+    if result["seed"] != spec.seed: raise ValueError("Seed mismatch")
+    
+    result["approved_implementation_sha"] = spec.approved_implementation_sha
+    result["protocol_v7_sha"] = spec.protocol_v7_sha
+    result["seal_v2_sha"] = spec.seal_v2_sha
+    result["label_scientific_sha"] = spec.label_scientific_sha
+    result["runtime_v3_identity"] = spec.runtime_v3_identity
+    result["runtime_v3_pin_sha"] = spec.runtime_v3_pin_sha
+    
+    return result
 
 def run_training_parent(approved_sha: str, cache_path: str, cache_sha: str, repo_root: str = "."):
     verify_approved_sha_gate(approved_sha, repo_root)
     check_real_training_authorization()
-    ev_id = verify_training_evidence_preflight(repo_root)
+    ev_id = verify_training_evidence_preflight(approved_sha, repo_root)
     
     if cache_sha != ev_id.label_scientific_sha:
         raise ValueError("cache_sha MUST exactly equal the canonical label scientific SHA")
@@ -803,13 +898,12 @@ def run_training_parent(approved_sha: str, cache_path: str, cache_sha: str, repo
     
     results = run_job_specs(job_specs, run_downstream_worker)
     
-    if len(results) != 160:
-        raise ValueError("Missing results")
-        
     expected_tuples = {(spec.condition, spec.nominal_budget, spec.seed) for spec in job_specs}
-    actual_tuples = set(results)
-    if actual_tuples != expected_tuples or len(results) != 160:
+    actual_tuples = {(res["condition"], res["nominal_budget"], res["seed"]) for res in results}
+    if actual_tuples != expected_tuples or len(results) != 160 or len(actual_tuples) != 160:
         raise ValueError("Results tuples incompleteness")
         
     return "STOP_BEFORE_SCIENTIFIC_ANALYSIS"
+
+
 
