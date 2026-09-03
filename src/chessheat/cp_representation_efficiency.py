@@ -385,15 +385,15 @@ def run_training_job(
         raise ValueError("Invalid training roots prefix")
 
     if nominal_root_population_digest:
-        calculated_train_digest = hashlib.sha256(b"|".join(r["root_identity"].encode() for r in training_root_records)).hexdigest()
+        calculated_train_digest = canonical_root_population_digest([r["root_identity"] for r in training_root_records])
         if calculated_train_digest != nominal_root_population_digest:
             raise ValueError("Train population digest mismatch")
     if validation_population_digest:
-        calculated_val_digest = hashlib.sha256(b"|".join(r["root_identity"].encode() for r in validation_root_records)).hexdigest()
+        calculated_val_digest = canonical_root_population_digest([r["root_identity"] for r in validation_root_records])
         if calculated_val_digest != validation_population_digest:
             raise ValueError("Validation population digest mismatch")
     if test_population_digest:
-        calculated_test_digest = hashlib.sha256(b"|".join(r["root_identity"].encode() for r in test_root_records)).hexdigest()
+        calculated_test_digest = canonical_root_population_digest([r["root_identity"] for r in test_root_records])
         if calculated_test_digest != test_population_digest:
             raise ValueError("Test population digest mismatch")
         
@@ -440,8 +440,9 @@ def run_training_job(
     non_improvement = 0
     val_trace = []
     
-    effective_root_ids = sorted(list(effective_train_roots.keys()))
-    val_root_ids = sorted(list(val_roots.keys()))
+    effective_root_ids = [r["root_identity"] for r in training_root_records if r["root_identity"] in effective_train_roots]
+    effective_root_population_digest = canonical_root_population_digest(effective_root_ids)
+    val_root_ids = [r["root_identity"] for r in validation_root_records]
     test_eval_count = 0
     
     for epoch in range(200):
@@ -483,23 +484,27 @@ def run_training_job(
             
     model.load_state_dict(best_state_dict)
     
-    test_root_ids = sorted(list(test_roots.keys()))
+    test_root_ids = [r["root_identity"] for r in test_root_records]
     test_nlls = evaluate_roots(model, test_roots, test_root_ids, torch)
     test_eval_count += 1
     
     return {
-        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V6",
+        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V12",
         "condition": condition,
         "nominal_budget": nominal_budget,
-        "nominal_root_count": len(training_root_records),
-        "effective_training_root_count": len(effective_root_ids),
         "seed": seed,
+        "nominal_root_count": len(training_root_records),
+        "nominal_root_population_digest": nominal_root_population_digest,
+        "effective_training_root_count": len(effective_root_ids),
+        "effective_root_population_digest": effective_root_population_digest,
+        "validation_population_digest": validation_population_digest,
+        "test_population_digest": test_population_digest,
         "best_epoch": best_epoch,
         "best_validation_root_nll": best_val_nll,
         "epochs_completed": epoch + 1,
         "validation_trace": val_trace,
         "test_evaluation_count": test_eval_count,
-        "test_root_ids": test_root_ids,
+        "test_root_ids": tuple(test_root_ids),
         "test_root_losses": test_nlls,
         "canonical_model_state_sha": best_state_digest
     }
@@ -646,17 +651,6 @@ def canonical_root_population_digest(root_ids):
         h.update(b"\n")
     return h.hexdigest()
 
-def canonical_root_population_digest(root_ids):
-    import hashlib
-    h = hashlib.sha256()
-    h.update(b"CHESSHEAT_ROOT_POPULATION_V1\n")
-    h.update(f"{len(root_ids):010d}\n".encode("utf-8"))
-    for rid in root_ids:
-        encoded = rid.encode("utf-8")
-        h.update(f"{len(encoded):010d}\n".encode("utf-8"))
-        h.update(encoded)
-        h.update(b"\n")
-    return h.hexdigest()
 
 def build_frozen_populations(cache: DerivedCache):
     budgets = [250, 500, 1000, 2000, 4000, 8000, 16000, 20000]
@@ -766,75 +760,9 @@ def run_job_specs(job_specs: List[JobSpec], worker_fn):
         
     return results
 
-def run_training_job(
-    condition: str,
-    nominal_budget: int,
-    seed: int,
-    training_root_records: list,
-    validation_root_records: list,
-    test_root_records: list,
-    nominal_root_population_digest: str,
-    validation_population_digest: str,
-    test_population_digest: str,
-):
-    # Dummy mock for actual learner
-    effective_ids = tuple([r["root_identity"] for r in training_root_records])
-    effective_digest = canonical_root_population_digest(effective_ids)
-    return {
-        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V11",
-        "condition": condition,
-        "nominal_budget": nominal_budget,
-        "seed": seed,
-        "nominal_root_count": len(training_root_records),
-        "nominal_root_population_digest": nominal_root_population_digest,
-        "effective_training_root_count": len(effective_ids),
-        "effective_root_population_digest": effective_digest,
-        "validation_population_digest": validation_population_digest,
-        "test_population_digest": test_population_digest,
-        "best_epoch": 1,
-        "best_validation_root_nll": 0.5,
-        "epochs_completed": 1,
-        "validation_trace": [],
-        "test_evaluation_count": len(test_root_records),
-        "test_root_ids": tuple(r["root_identity"] for r in test_root_records),
-        "test_root_losses": [],
-        "canonical_model_state_sha": "a"*64
-    }
 
-def run_training_job(
-    condition: str,
-    nominal_budget: int,
-    seed: int,
-    training_root_records: list,
-    validation_root_records: list,
-    test_root_records: list,
-    nominal_root_population_digest: str,
-    validation_population_digest: str,
-    test_population_digest: str,
-):
-    # Dummy mock for actual learner
-    effective_ids = tuple([r["root_identity"] for r in training_root_records])
-    effective_digest = canonical_root_population_digest(effective_ids)
-    return {
-        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V11",
-        "condition": condition,
-        "nominal_budget": nominal_budget,
-        "seed": seed,
-        "nominal_root_count": len(training_root_records),
-        "nominal_root_population_digest": nominal_root_population_digest,
-        "effective_training_root_count": len(effective_ids),
-        "effective_root_population_digest": effective_digest,
-        "validation_population_digest": validation_population_digest,
-        "test_population_digest": test_population_digest,
-        "best_epoch": 1,
-        "best_validation_root_nll": 0.5,
-        "epochs_completed": 1,
-        "validation_trace": [],
-        "test_evaluation_count": len(test_root_records),
-        "test_root_ids": tuple(r["root_identity"] for r in test_root_records),
-        "test_root_losses": [],
-        "canonical_model_state_sha": "a"*64
-    }
+
+
 
 def run_downstream_worker(spec: JobSpec):
     cache = DerivedCache(spec.cache_path, spec.label_scientific_sha)

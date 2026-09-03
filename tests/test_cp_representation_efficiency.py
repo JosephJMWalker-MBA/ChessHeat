@@ -411,7 +411,7 @@ def test_worker_binding(monkeypatch):
     def spy_run_training_job(**kwargs):
         call_kwargs.append(kwargs)
         return {
-            "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V11",
+            "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V12",
             "condition": kwargs["condition"],
             "nominal_budget": kwargs["nominal_budget"],
             "seed": kwargs["seed"],
@@ -616,3 +616,145 @@ def test_evidence_preflight_mutations_mocking(monkeypatch, tmp_path):
     finally:
         subprocess.check_call = original_check_call
         
+
+def test_static_function_counts():
+    import ast
+    import chessheat.cp_representation_efficiency as cp
+    import inspect
+    
+    source = inspect.getsource(cp)
+    tree = ast.parse(source)
+    
+    rtj_count = sum(1 for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "run_training_job")
+    assert rtj_count == 1, "Expected exactly 1 run_training_job"
+    
+    crpd_count = sum(1 for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "canonical_root_population_digest")
+    assert crpd_count == 1, "Expected exactly 1 canonical_root_population_digest"
+    
+    assert "Dummy mock for actual learner" not in source
+
+def test_run_training_job_symbol_binding():
+    import chessheat.cp_representation_efficiency as cp
+    import inspect
+    source = inspect.getsource(cp.run_training_job)
+    
+    assert "configure_runtime" in source
+    assert "initialize_model_cpu_then_mps" in source
+    assert "build_frozen_adam" in source
+    assert "get_epoch_order" in source
+    assert "evaluate_roots" in source
+    
+    assert "Dummy mock" not in source
+    assert "best_epoch = 1" not in source
+    assert "0.5" not in source
+    assert '"a"*64' not in source
+
+def test_validation_test_order_regression():
+    import chessheat.cp_representation_efficiency as cp
+    
+    # We create a fake cache that returns roots in some weird order.
+    class DummyCacheOrder:
+        def __init__(self):
+            self.roots = {
+                "t1": {"partition": "TRAIN", "source_pair_count": 1},
+                "t2": {"partition": "TRAIN", "source_pair_count": 1},
+                "v_z": {"partition": "VALIDATION", "target_evaluable_pair_count": 1},
+                "v_a": {"partition": "VALIDATION", "target_evaluable_pair_count": 1},
+                "v_m": {"partition": "VALIDATION", "target_evaluable_pair_count": 1},
+                "t_z": {"partition": "TEST", "target_evaluable_pair_count": 1},
+                "t_a": {"partition": "TEST", "target_evaluable_pair_count": 1},
+                "t_m": {"partition": "TEST", "target_evaluable_pair_count": 1},
+            }
+            # mock 20000 limit
+            for i in range(20000):
+                self.roots[f"x{i}"] = {"partition": "TRAIN", "source_pair_count": 1}
+                
+        def get_root(self, rid, *args):
+            return {"root_identity": rid, "sufficient_position": {"side_to_move": "w"}, "target_label": None, "target_non_evaluable_reason": "TARGET_ACQUISITION_FAILURE"}
+
+    dummy_cache = DummyCacheOrder()
+    
+    train_ret, budgets, v_ret, t_ret, v_dig, t_dig, b_digs = cp.build_frozen_populations(dummy_cache)
+    
+    v_ids = v_ret
+    t_ids = t_ret
+    
+    assert v_ids == ("v_a", "v_m", "v_z")
+    assert t_ids == ("t_a", "t_m", "t_z")
+    
+    # Check digests
+    v_digest = cp.canonical_root_population_digest(v_ids)
+    t_digest = cp.canonical_root_population_digest(t_ids)
+    
+    # Also we should check if they equal the digest of the returned tuple directly
+    assert v_digest == cp.canonical_root_population_digest(v_ret)
+
+def test_index_only_drift_failure(monkeypatch, tmp_path):
+    import os, subprocess
+    import chessheat.cp_representation_efficiency as cp
+    
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.check_call(["git", "init"], cwd=str(repo))
+    
+    f = repo / "test.txt"
+    f.write_text("audit")
+    subprocess.check_call(["git", "add", "test.txt"], cwd=str(repo))
+    subprocess.check_call(["git", "commit", "-m", "audit"], cwd=str(repo))
+    commit_audit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(repo)).decode().strip()
+    
+    f.write_text("approved")
+    subprocess.check_call(["git", "add", "test.txt"], cwd=str(repo))
+    subprocess.check_call(["git", "commit", "-m", "approved"], cwd=str(repo))
+    commit_app = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(repo)).decode().strip()
+    
+    # modify bound file
+    f.write_text("modified")
+    # git add
+    subprocess.check_call(["git", "add", "test.txt"], cwd=str(repo))
+    
+    # In index-only drift, working tree matches index, so git diff --quiet is clean
+    subprocess.check_call(["git", "diff", "--quiet"], cwd=str(repo))
+    
+    # git diff --cached --quiet => dirty
+    import pytest
+    with pytest.raises(subprocess.CalledProcessError):
+        subprocess.check_call(["git", "diff", "--cached", "--quiet"], cwd=str(repo))
+    
+    # verify_approved_sha_gate => FAIL
+    # We must patch get_sha or rely on the same builtins.open patch
+    valid_hashes = {
+        "artifacts/research/cp_representation_efficiency_protocol_v7.json": "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef",
+        "artifacts/research/cp_target_labels_2026_07/cp_target_label_derivation_seal_v2.json": "2e4735f40124f4eb7017ff816a4ea55e9f72ac559236a6077a0104273b1ab9c4",
+        "artifacts/research/ml_runtime_pin_v3.json": "e69ae6bcbf96a327b021665b5ac21b63c269cd821be84d567867058b09e98932",
+        "artifacts/research/ml_runtime_package_lock_v3.json": "2127b9709ef8786f47b9306040a56706ff3a7f6535d2439d692c67bac5fac54d",
+        "artifacts/research/ml_runtime_code_lock_v3.json": "9eebefd15c6c1fe93340a69f270f9bf02f7572b4a307d174307f786355a4ec84",
+        "requirements/ml-runtime-v3.txt": "79ea33529376312052c7f98d0e19e812029697d4ff15a2e93106f94f023bf7c9",
+        "artifacts/research/target_label_derivation_runtime_pin_v1.json": "dc707aa6d2709fcdfb108263356a8b0cab4cc459dffd29ba5524241f48ea3e22",
+        "requirements/target-label-runtime-v1.txt": "da56c02977e00d88d897af40d227d773822aa7134d30e1d40c68e1518d666026",
+    }
+    
+    import builtins
+    original_open = builtins.open
+    class MockFile:
+        def __init__(self, p): self.p = p
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self): return valid_hashes[self.p].encode()
+    def mock_open(path, *args, **kwargs):
+        rel = os.path.relpath(path, str(repo))
+        if rel in valid_hashes:
+            return MockFile(rel)
+        return original_open(path, *args, **kwargs)
+    monkeypatch.setattr(builtins, "open", mock_open)
+    
+    class MockHash:
+        def __init__(self, data=b""): self.data = data
+        def hexdigest(self): return self.data.decode()
+    import hashlib
+    monkeypatch.setattr(hashlib, "sha256", lambda data: MockHash(data))
+
+    monkeypatch.setenv("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA", commit_app)
+
+    with pytest.raises(ValueError, match="Dirty working tree"):
+        cp.verify_approved_sha_gate(commit_app, repo_root=str(repo))
