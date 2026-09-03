@@ -1,0 +1,34 @@
+{
+  "schema": "CP_REPRESENTATION_EFFICIENCY_PRODUCTION_PREFLIGHT_V1",
+  "approved_implementation_sha": "82b8da2285d5bf48cbd27bd1f30388c79e92f347",
+  "authoritative_audit_sha": "47efbe7241986b5a20c9b5031d5934358cfdd2dd",
+  "protocol_v7_sha": "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef",
+  "label_scientific_sha": "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2",
+  "Runtime_V3_identity": "CHESSHEAT_ML_RUNTIME_V3",
+  "real_training_count": 0,
+  "scientific_july_analysis_performed": false,
+  "failure_classes": [
+    "NO_DURABLE_WORKER_RESULT_SEAL",
+    "CANONICAL_CACHE_ABSENT"
+  ],
+  "evidence_preflight": "PASS",
+  "runtime_preflight": "PASS",
+  "output_persistence": {
+    "present": false,
+    "mechanism": "None. Parent keeps workers' dicts in memory and returns them.",
+    "crash_safety": "None. Parent crash loses all worker results.",
+    "result_sealing": "Result is sealed in memory, but not durably persisted.",
+    "resumption_semantics": "RESUMPTION_SEMANTICS_UNDEFINED. No durable journal exists."
+  },
+  "output_persistence_absent": true,
+  "storage": {
+    "available_bytes": 16445714432,
+    "estimated_required_bytes": 32768000
+  },
+  "cache": {
+    "path": "artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v6.jsonl",
+    "SHA": "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2",
+    "status": "FAIL: [Errno 2] No such file or directory: 'artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v6.jsonl'"
+  },
+  "verdict": "PRODUCTION_DOWNSTREAM_TRAINING_EXECUTION_PREFLIGHT_FAIL"
+}
