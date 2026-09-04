@@ -1,0 +1,11 @@
+{
+  "schema": "CP_TARGET_EXECUTION_ARTIFACT_RECOVERY_SUPPLEMENT_2",
+  "original_recovery_audit_sha": "4291e6b0fa2cbf7b34aaadfa84b16aa4fdb4cf29",
+  "supplement_1_commit_sha": "3d4349436c698ad8c391766f3f9fac823e682535",
+  "supplement_1_disposition": "NONAUTHORITATIVE_MISCLASSIFIED_ABORTED_ATTEMPT",
+  "attempt_1_status": "AUTHORITATIVE_TARGET_RAW_EXACT_RECONSTRUCTION_ATTEMPT_1_ABORTED_INCOMPLETE",
+  "reason": "PROCESS_TERMINATED_BEFORE_COMPLETE_ARTIFACT_EXISTED",
+  "exact_reconstruction_status": "UNRESOLVED",
+  "real_training_count": 0,
+  "scientific_analysis_performed": false
+}
