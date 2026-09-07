@@ -1,0 +1,104 @@
+{
+  "schema": "CP_REPRESENTATION_EFFICIENCY_PRODUCTION_REPAIR_V16_REAUDIT",
+  "implementation_sha": "f7d76959fd59be80e7fd9c91f9f01489942da02a",
+  "preflight_v2_commit": "912845fd37f3f8ef6e4ca431f18bb3fc84f8a006",
+  "actual_v2_correction_commit": "c81f99a5c03b5713700c6f59d081ae56fae0be56",
+  "verdict": "DOWNSTREAM_PRODUCTION_EXECUTION_V16_HOSTILE_REAUDIT_FAIL",
+  "real_training_count": 0,
+  "scientific_analysis_performed": false,
+  "passed_findings": {
+    "streaming_architecture_status": "STREAMING_ARCHITECTURE_MECHANICALLY_PLAUSIBLE",
+    "whole_population_eager_tensor_residency_removed_from_cache_backed_production_path": true,
+    "frozen_training_semantics_preserved_by_inspection": [
+      "effective-root batching",
+      "SHA-derived epoch ordering",
+      "batch size 64",
+      "per-root pair mean",
+      "root-weighted minibatch mean",
+      "one backward per minibatch",
+      "one optimizer step per minibatch",
+      "validation after every epoch",
+      "early stopping",
+      "best-checkpoint restoration",
+      "exactly-one TEST evaluation"
+    ],
+    "validation_streamed_root_by_root_under_no_grad": true,
+    "test_streamed_root_by_root_under_no_grad": true,
+    "v15_to_v16_tiny_mu_D_fixture_bit_identical_as_recorded": true,
+    "production_authorization_granted": false
+  },
+  "failure_findings": {
+    "V16_EVIDENCE_PROVENANCE_SHA_INCORRECT": {
+      "recorded_in_v16_evidence": "c81f99a80b06b29cf1076fb41b71688dbeceb99a",
+      "actual_pushed_commit": "c81f99a5c03b5713700c6f59d081ae56fae0be56",
+      "disposition": "Do not rewrite the historical V16 evidence artifact; correct forward in V17 evidence."
+    },
+    "DURABLE_WORKER_RESULT_SEMANTIC_VALIDATION_INCOMPLETE": {
+      "finding": "The durable resume scanner authenticates envelope provenance and payload SHA but does not establish all scientifically material worker-result invariants required to treat resumed evidence as equivalent to a freshly returned valid production worker result.",
+      "currently_undervalidated_fields_or_relations": [
+        "test_root_losses exact key coverage and finiteness",
+        "effective_root_population_digest",
+        "canonical_model_state_sha format/validity",
+        "validation_trace presence, finiteness, and relationship to epochs_completed",
+        "best_epoch bounds",
+        "best_validation_root_nll finiteness and consistency with the frozen earliest-minimum rule",
+        "epochs_completed bounds/consistency"
+      ],
+      "required_future_hostile_tests": [
+        "correctly re-hashed envelope with missing test_root_losses",
+        "correctly re-hashed envelope with incomplete test_root_losses",
+        "correctly re-hashed envelope with extra test_root_losses",
+        "correctly re-hashed envelope with non-finite test loss",
+        "correctly re-hashed envelope with wrong effective_root_population_digest",
+        "correctly re-hashed envelope with malformed canonical_model_state_sha",
+        "correctly re-hashed envelope with missing validation_trace",
+        "correctly re-hashed envelope with validation_trace length inconsistent with epochs_completed",
+        "correctly re-hashed envelope with best_epoch outside executed epoch range",
+        "correctly re-hashed envelope with best_validation_root_nll inconsistent with the frozen earliest-minimum rule"
+      ]
+    },
+    "NO_SILENT_OVERWRITE_NOT_ATOMICALLY_ENFORCED": {
+      "finding": "save_sealed_worker_result performs an existence check and later publishes with os.replace. This is a check-then-replace TOCTOU race: two concurrent writers can both observe an absent final path and the later os.replace can replace the first completed artifact.",
+      "existing_sequential_overwrite_test_sufficient": false,
+      "future_requirement": "Use an atomic no-clobber publication primitive or an equivalent fail-closed single-writer lock and test the concurrency case explicitly."
+    },
+    "PRODUCTION_PARENT_RESUME_INTEGRATION_NOT_YET_DEMONSTRATED": {
+      "finding": "V16 scenarios A-C manually exercise scanner and sealing primitives but do not demonstrate the complete run_training_parent -> missing_specs -> run_job_specs -> on_result_success -> interruption -> restart -> reuse valid results -> execute missing jobs only -> finalization path."
+    }
+  },
+  "memory_evidence_qualification": {
+    "worst_frozen_minibatch_evaluable_pairs": 47574,
+    "seed": 104729,
+    "epoch": 85,
+    "batch_index": 225,
+    "status": "V16_BOUNDED_MEMORY_FEASIBILITY_STRONGLY_SUPPORTED",
+    "qualification": "The reported MPS probe used a synthetic 64-root batch with the same total pair count distributed approximately evenly across roots. Therefore the measured approximately 3.12 GiB allocation is not established as the exact real worst-batch production peak.",
+    "exact_real_worst_batch_peak_memory": "NOT_MEASURED"
+  },
+  "watchdog_execution_time": {
+    "watchdog_timeout_seconds": 7200,
+    "status": "PRODUCTION_MAX_JOB_RUNTIME_WITHIN_WATCHDOG_UNRESOLVED",
+    "finding": "Streaming materially changes repeated cache-read behavior relative to V15, and no evidence currently demonstrates that the maximum production job completes within the existing watchdog.",
+    "real_scientific_job_timing_run_performed": false
+  },
+  "test_evidence_status": {
+    "local_test_claims": "REPORTED_BY_V16_CONSTRUCTION",
+    "remote_ci_or_workflow_run_present_for_v16_commit": false,
+    "qualification": "REMOTE_CI_CORROBORATION_NOT_PRESENT",
+    "disposition": "Evidence qualification only; not independently a scientific implementation failure."
+  },
+  "authoritative_failure_classes": [
+    "V16_EVIDENCE_PROVENANCE_SHA_INCORRECT",
+    "DURABLE_WORKER_RESULT_SEMANTIC_VALIDATION_INCOMPLETE",
+    "NO_SILENT_OVERWRITE_NOT_ATOMICALLY_ENFORCED",
+    "PRODUCTION_PARENT_RESUME_INTEGRATION_NOT_YET_DEMONSTRATED"
+  ],
+  "additional_unresolved": [
+    "PRODUCTION_MAX_JOB_RUNTIME_WITHIN_WATCHDOG_UNRESOLVED"
+  ],
+  "next_blocker": "DOWNSTREAM_PRODUCTION_EXECUTION_REPAIR_V17_REQUIRED",
+  "execution_ceiling": {
+    "real_training": "0 / UNAUTHORIZED",
+    "scientific_analysis": "NOT PERFORMED / UNAUTHORIZED"
+  }
+}
