@@ -1,0 +1,83 @@
+{
+  "schema": "CP_TARGET_EXECUTION_ARTIFACT_RECOVERY_SUPPLEMENT_3",
+  "original_recovery_audit_sha": "4291e6b0fa2cbf7b34aaadfa84b16aa4fdb4cf29",
+  "supplement_1_commit_sha": "3d4349436c698ad8c391766f3f9fac823e682535",
+  "supplement_2_commit_sha": "6a727118b4d97b874f7c21abfc5cf15ad463d4ec",
+  "provenance_correction": {
+    "audit_v1_statement": "AUTHORITATIVE_V6_LABEL_LOCAL_COPY_NOT_RECOVERED",
+    "audit_v1_scope_limitation": "The initial search scope in CP_TARGET_EXECUTION_ARTIFACT_RECOVERY_AUDIT_V1 did not inspect the local Git object database.",
+    "superseded_status": "AUTHORITATIVE_V6_LABEL_GIT_OBJECT_DISCOVERED",
+    "provisional_blocker_superseded": "LIVE_DERIVATION_BLOCKED_BY_EMPTY_SOURCE_RAW_PENDING_USER_DECISION is superseded for V6-label recovery because the authoritative payload was recovered directly from the local Git object database without re-derivation."
+  },
+  "target_raw_reconstruction": {
+    "status": "AUTHORITATIVE_TARGET_RAW_BIT_IDENTICAL_RECONSTRUCTED",
+    "source_path": "artifacts/research/cp_target_reconstruction_2026_09/attempt_2/cp_target_root_results_v2.jsonl",
+    "SHA256": "d9b290bd44902559fd98f3b9c17b35b586ff72425cb2783b42cf76e200e81b00",
+    "bytes": 770029516,
+    "records": 33859,
+    "success_count": 33859,
+    "failure_count": 0,
+    "max_engine_session_epoch": 1,
+    "canonical_path": "artifacts/research/cp_target_acquisition_2026_07/raw/cp_target_root_results_v2.jsonl",
+    "canonical_restoration": "RESTORED_VIA_TMP_ATOMIC_RENAME",
+    "canonical_SHA256": "d9b290bd44902559fd98f3b9c17b35b586ff72425cb2783b42cf76e200e81b00",
+    "canonical_bytes": 770029516,
+    "seal_v2_match": true
+  },
+  "v6_label_recovery": {
+    "verdict": "AUTHORITATIVE_V6_LABEL_ARTIFACT_BIT_IDENTICAL_RECOVERED",
+    "recovery_method": "LOCAL_GIT_OBJECT_DATABASE_EXTRACTION",
+    "git_object_sha1": "79794a4da5490401cb8d7d3d2f50aa1bb630db23",
+    "git_object_type": "blob",
+    "git_object_bytes": 913691406,
+    "git_object_sha256": "dea9346f9cb125f9c35e8824bb937daf4ea7fc51cff7f6c7c437caac8ae2c92d",
+    "canonical_compressed_path": "artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v6.jsonl.zst",
+    "canonical_compressed_bytes": 913691406,
+    "canonical_compressed_sha256": "dea9346f9cb125f9c35e8824bb937daf4ea7fc51cff7f6c7c437caac8ae2c92d",
+    "decompressed_stream_sha256": "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2",
+    "decompressed_stream_bytes": 3933405259,
+    "total_roots": 33859,
+    "pair_eligible_roots": 33444,
+    "zero_pair_roots": 415,
+    "total_pairs": 17788903,
+    "execution_cache_path": "artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v6.jsonl",
+    "execution_cache_bytes": 3933405259,
+    "execution_cache_sha256": "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2",
+    "derived_cache_index_roots": 33859,
+    "derived_cache_index_status": "DERIVED_CACHE_INDEX_CONSTRUCTION_SUCCESS",
+    "archive_copy_path": "artifacts/research/cp_target_reconstruction_2026_09/recovered_authoritative_labels/cp_target_pair_labels_v6.jsonl.zst",
+    "archive_copy_bytes": 913691406,
+    "archive_copy_sha256": "dea9346f9cb125f9c35e8824bb937daf4ea7fc51cff7f6c7c437caac8ae2c92d",
+    "label_seal_v2_sha256": "2e4735f40124f4eb7017ff816a4ea55e9f72ac559236a6077a0104273b1ab9c4",
+    "label_seal_v2_match": true
+  },
+  "source_raw_status": {
+    "status": "AUTHORITATIVE_SOURCE_RAW_PAYLOAD_CURRENTLY_UNAVAILABLE",
+    "canonical_path": "artifacts/research/cp_source_feasibility_2026_07/raw/cp_source_root_results_v2.jsonl",
+    "expected_sha256": "7eb640c572dad4c6607cfb1b5ccf99597672042e5c516f131feab02223ccfa6b",
+    "current_bytes_on_disk": 0,
+    "acquisition_history_invalidation": false,
+    "presently_recoverable": false,
+    "downstream_training_requirement": false,
+    "note": "Downstream training requires only the uncompressed execution cache and does not open or hash cp_source_root_results_v2.jsonl. Frozen SOURCE pair features are preserved inside the recovered V6 labels."
+  },
+  "downstream_execution_dependency_check": {
+    "verify_training_evidence_preflight_checked": true,
+    "implementation_reference": "src/chessheat/cp_representation_efficiency.py:verify_training_evidence_preflight",
+    "requires_source_raw_file": false,
+    "required_identities": [
+      "canonical V6 uncompressed cache SHA c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2",
+      "label seal V2 (2e4735f40124f4eb7017ff816a4ea55e9f72ac559236a6077a0104273b1ab9c4)",
+      "protocol V7 (ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef)",
+      "ml runtime V3 pin and locks",
+      "target label runtime pin and requirements",
+      "approved implementation lineage"
+    ]
+  },
+  "execution_status": {
+    "real_training_count": 0,
+    "scientific_analysis_performed": false
+  },
+  "overall_status": "AUTHORITATIVE_DOWNSTREAM_EXECUTION_LABEL_ARTIFACTS_RECOVERED",
+  "next_blocker": "PRODUCTION_DOWNSTREAM_TRAINING_EXECUTION_PREFLIGHT_V2_REQUIRED"
+}
