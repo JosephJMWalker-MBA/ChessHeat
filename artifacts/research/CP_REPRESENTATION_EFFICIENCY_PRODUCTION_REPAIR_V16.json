@@ -1,0 +1,143 @@
+{
+  "authorization_gate_tests": {
+    "real_training_gate": "CHESSHEAT_REAL_TRAINING_AUTHORIZED=CHESSHEAT_REAL_TRAINING_V1_AUTHORIZED verified fail-closed",
+    "scientific_analysis_gate": "CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED=CHESSHEAT_SCIENTIFIC_ANALYSIS_V1_AUTHORIZED verified fail-closed"
+  },
+  "before_after_tiny_reference_hashes": {
+    "bit_identical_repeatability": true,
+    "reference_best_epoch": 11,
+    "reference_canonical_model_state_sha": "797214652486b42910fd51a98d3f0ddbcbd1f8ac97b813cd5c62fc5c4b1fbf3e",
+    "reference_canonical_serialized_result_sha256": "1ae111655fb4239f901b0c86793c8d8ed22a949bfe237de1c7040160f652b370",
+    "reference_epochs_completed": 32,
+    "v16_best_epoch": 11,
+    "v16_canonical_model_state_sha": "797214652486b42910fd51a98d3f0ddbcbd1f8ac97b813cd5c62fc5c4b1fbf3e",
+    "v16_canonical_serialized_result_sha256": "1ae111655fb4239f901b0c86793c8d8ed22a949bfe237de1c7040160f652b370",
+    "v16_epochs_completed": 32
+  },
+  "bounded_residency_design": {
+    "dataset_mps_residency_eliminated": true,
+    "root_loader": "Root-on-demand streaming loader reads one root record at a time from DerivedCache byte offsets, validates schema and pair integrity, constructs LearnerRecords, and allocates tensors only for that single root.",
+    "test_residency": "One root tensor set at a time evaluated under model.eval() and torch.no_grad(). Exactly one test evaluation executed after best checkpoint restoration; only scalar root losses retained.",
+    "training_residency": "At most the 64-root computation graph for the active minibatch resides on MPS during forward accumulation. Gradients are backpropagated on (total_loss / B) and batch tensors/graph are deallocated upon optimizer step.",
+    "validation_residency": "One root tensor set at a time evaluated under model.eval() and torch.no_grad(). Only scalar root NLL is retained; tensors are deallocated before next root is loaded."
+  },
+  "durable_result_seal_schema": {
+    "envelope_fields": [
+      "schema",
+      "condition",
+      "nominal_budget",
+      "seed",
+      "approved_implementation_sha",
+      "protocol_v7_sha",
+      "seal_v2_sha",
+      "label_scientific_sha",
+      "runtime_v3_identity",
+      "runtime_v3_pin_sha",
+      "nominal_root_population_digest",
+      "validation_population_digest",
+      "test_population_digest",
+      "payload_sha256",
+      "payload"
+    ],
+    "filename_pattern": "worker_result_{condition}_b{nominal_budget}_s{seed}.json",
+    "persistence_contract": "Write to .tmp_{filename}_{pid} -> flush -> os.fsync(file) -> atomic os.replace -> os.fsync(directory)",
+    "result_directory": "artifacts/research/cp_representation_efficiency_training_v1/worker_results/",
+    "schema_identifier": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_SEAL_V1"
+  },
+  "four_condition_boundary_tests": {
+    "b_perm_fixed_sha_permutation_of_mu_t": true,
+    "conditions": [
+      "mu_D",
+      "mu_T",
+      "B_daS",
+      "B_perm"
+    ],
+    "no_additional_features_introduced": true,
+    "position_shape": [
+      18,
+      8,
+      8
+    ],
+    "side_information_shape": [
+      270
+    ],
+    "spatial_channel_shape": [
+      1,
+      8,
+      8
+    ],
+    "target_information_excluded": true
+  },
+  "memory_probe": {
+    "mem_after_backward_alloc_bytes": 20154624,
+    "mem_after_backward_driver_bytes": 3438100480,
+    "mem_after_release_alloc_bytes": 4049152,
+    "mem_after_release_alloc_mib": 3.86,
+    "mem_after_release_driver_bytes": 3438100480,
+    "mem_after_release_driver_mib": 3278.83,
+    "mem_before_alloc_bytes": 578816,
+    "mem_before_driver_bytes": 8880128,
+    "mem_during_alloc_bytes": 3271427072,
+    "mem_during_alloc_mib": 3119.88,
+    "mem_during_driver_bytes": 3425386496,
+    "mem_during_driver_mib": 3266.7,
+    "mps_recommended_max_working_set_bytes": 12713115648,
+    "peak_allocated_percent_of_mps_working_set": 25.73,
+    "probed_batch_pairs": 47574,
+    "probed_roots": 64
+  },
+  "next_blocker": "DOWNSTREAM_PRODUCTION_EXECUTION_V16_HOSTILE_REAUDIT_REQUIRED",
+  "real_training_count": 0,
+  "repair_status": "DOWNSTREAM_PRODUCTION_EXECUTION_V16_IMPLEMENTED_NOT_YET_AUTHORIZED",
+  "resume_scanner_tests": {
+    "scenarios_tested": [
+      "A: Fresh empty result directory -> all expected fake jobs execute and seal",
+      "B: Interrupt after N successful fake jobs -> N seals survive",
+      "C: Restart -> N valid seals reused and only missing jobs execute",
+      "D: Corrupt sealed payload -> startup fails closed",
+      "E: Modify payload without matching hash -> fails closed",
+      "F: Wrong implementation SHA -> fails closed",
+      "G: Wrong protocol SHA -> fails closed",
+      "H: Wrong label SHA -> fails closed",
+      "I: Wrong runtime identity/pin -> fails closed",
+      "J: Wrong population digest -> fails closed",
+      "K: Unexpected tuple -> fails closed",
+      "L: Duplicate logical tuple -> fails closed",
+      "M: Leftover partial/temp artifact (.tmp_*) -> fails closed",
+      "N: Existing valid final file cannot be silently overwritten",
+      "O: Finalization with 159 results -> fails",
+      "P: Finalization with exact 160 valid results -> passes"
+    ],
+    "status": "ALL_SCENARIOS_PASS",
+    "test_suite": "tests/test_v16_repair_authoritative.py"
+  },
+  "schema": "CP_REPRESENTATION_EFFICIENCY_PRODUCTION_REPAIR_V16",
+  "scientific_analysis_performed": false,
+  "storage_measurement": {
+    "available_disk_space_bytes": 7549000000,
+    "available_disk_space_gib": 7.03,
+    "exact_160_envelopes_total_bytes": 68438240,
+    "exact_160_envelopes_total_mib": 65.27,
+    "exact_single_envelope_bytes": 427739,
+    "exact_single_envelope_mib": 0.4079,
+    "storage_consumption_percent_of_available": 0.91,
+    "storage_headroom": ">100x"
+  },
+  "streaming_equivalence_result": "V16_STREAMING_EQUIVALENCE_PASS",
+  "v16_implementation_files": [
+    "src/chessheat/cp_representation_efficiency.py",
+    "tests/test_v16_repair_authoritative.py",
+    ".gitignore"
+  ],
+  "v2_correction_supplement_commit": "c81f99a80b06b29cf1076fb41b71688dbeceb99a",
+  "v2_failure_commit": "912845fd37f3f8ef6e4ca431f18bb3fc84f8a006",
+  "worst_frozen_minibatch_pair_census": {
+    "batch_digest": "6bbff96db69f79c5af7fb98988e00a24764faacc5056862910c661405f535c19",
+    "batch_index": 225,
+    "batch_roots_count": 64,
+    "epoch": 85,
+    "max_batch_evaluable_pair_count": 47574,
+    "search_space": "All 5 seeds (1729, 2718, 31415, 65537, 104729) x 200 epochs x 20,000-root nominal budget (1,000 epoch permutations)",
+    "seed": 104729
+  }
+}

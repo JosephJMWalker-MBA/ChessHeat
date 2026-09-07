@@ -346,30 +346,42 @@ def build_root_tensors(torch, records: List[LearnerRecord], device):
     y = torch.tensor(labels, dtype=torch.long).to(device)
     return x_spatial, x_side, y
 
-def evaluate_roots(model, root_records_tensors: Dict[str, Any], root_ids: List[str], torch):
+def evaluate_roots(model, root_records_tensors: Any, root_ids: List[str], torch):
     model.eval()
     root_nlls = {}
     loss_fn = torch.nn.CrossEntropyLoss(reduction='none')
+    is_callable = callable(root_records_tensors)
     with torch.no_grad():
         for rid in root_ids:
-            if rid not in root_records_tensors:
+            if is_callable:
+                tensors = root_records_tensors(rid)
+            else:
+                if rid not in root_records_tensors:
+                    continue
+                tensors = root_records_tensors[rid]
+            if tensors is None:
                 continue
-            x_spatial, x_side, y = root_records_tensors[rid]
+            x_spatial, x_side, y = tensors
             logits = model(x_spatial, x_side)
             loss = loss_fn(logits, y).mean()
             root_nlls[rid] = loss.item()
+            del x_spatial, x_side, y, logits, loss
     return root_nlls
 
 def run_training_job(
     condition: str,
     nominal_budget: int,
     seed: int,
-    training_root_records: List[Dict],
-    validation_root_records: List[Dict],
-    test_root_records: List[Dict],
-    nominal_root_population_digest: str,
-    validation_population_digest: str,
-    test_population_digest: str
+    training_root_records: Optional[List[Dict]] = None,
+    validation_root_records: Optional[List[Dict]] = None,
+    test_root_records: Optional[List[Dict]] = None,
+    nominal_root_population_digest: Optional[str] = None,
+    validation_population_digest: Optional[str] = None,
+    test_population_digest: Optional[str] = None,
+    cache: Optional[Any] = None,
+    nominal_root_ids: Optional[Tuple[str, ...]] = None,
+    validation_root_ids: Optional[Tuple[str, ...]] = None,
+    test_root_ids: Optional[Tuple[str, ...]] = None,
 ):
     if condition == "B_raw":
         raise ValueError("B_RAW_NOT_EXECUTED_IN_PRIMARY_V2_PIPELINE")
@@ -377,24 +389,6 @@ def run_training_job(
     valid_budgets = {250, 500, 1000, 2000, 4000, 8000, 16000, 20000}
     if nominal_budget not in valid_budgets:
         raise ValueError("Invalid budget")
-    if len(training_root_records) != nominal_budget:
-        raise ValueError("Nominal root count mismatch")
-        
-    sorted_recs = sorted(training_root_records, key=lambda x: canonical_budget_order(x["root_identity"]))
-    if [r["root_identity"] for r in training_root_records] != [r["root_identity"] for r in sorted_recs][:nominal_budget]:
-        raise ValueError("Invalid training roots prefix")
-
-    calculated_train_digest = canonical_root_population_digest([r["root_identity"] for r in training_root_records])
-    if calculated_train_digest != nominal_root_population_digest:
-        raise ValueError("Train population digest mismatch")
-    
-    calculated_val_digest = canonical_root_population_digest([r["root_identity"] for r in validation_root_records])
-    if calculated_val_digest != validation_population_digest:
-        raise ValueError("Validation population digest mismatch")
-        
-    calculated_test_digest = canonical_root_population_digest([r["root_identity"] for r in test_root_records])
-    if calculated_test_digest != test_population_digest:
-        raise ValueError("Test population digest mismatch")
         
     ctx = configure_runtime(seed)
     torch = ctx.torch
@@ -404,31 +398,123 @@ def run_training_job(
     optimizer = build_frozen_adam(model, torch)
     loss_fn = torch.nn.CrossEntropyLoss(reduction='none')
     
-    training_root_records = read_and_validate_roots(training_root_records)
-    validation_root_records = read_and_validate_roots(validation_root_records)
-    test_root_records = read_and_validate_roots(test_root_records)
-    
-    effective_train_roots = {}
-    for r in training_root_records:
-        recs = construct_learner_records(r, condition)
-        if recs:
-            effective_train_roots[r["root_identity"]] = build_root_tensors(torch, recs, device)
+    if cache is not None:
+        if nominal_root_ids is None or validation_root_ids is None or test_root_ids is None:
+            raise ValueError("nominal_root_ids, validation_root_ids, and test_root_ids required when cache is provided")
+        if len(nominal_root_ids) != nominal_budget:
+            raise ValueError("Nominal root count mismatch")
             
-    val_roots = {}
-    for r in validation_root_records:
-        recs = construct_learner_records(r, condition)
-        if not recs:
-            raise ValueError("Fail if 0-evaluable roots in val/test")
-        val_roots[r["root_identity"]] = build_root_tensors(torch, recs, device)
+        calculated_train_digest = canonical_root_population_digest(nominal_root_ids)
+        if calculated_train_digest != nominal_root_population_digest:
+            raise ValueError("Train population digest mismatch")
+        
+        calculated_val_digest = canonical_root_population_digest(validation_root_ids)
+        if calculated_val_digest != validation_population_digest:
+            raise ValueError("Validation population digest mismatch")
             
-    test_roots = {}
-    for r in test_root_records:
-        recs = construct_learner_records(r, condition)
-        if not recs:
-            raise ValueError("Fail if 0-evaluable roots in val/test")
-        test_roots[r["root_identity"]] = build_root_tensors(torch, recs, device)
+        calculated_test_digest = canonical_root_population_digest(test_root_ids)
+        if calculated_test_digest != test_population_digest:
+            raise ValueError("Test population digest mismatch")
+            
+        if hasattr(cache, "roots") and cache.roots:
+            effective_root_ids = [rid for rid in nominal_root_ids if cache.roots[rid].get("target_evaluable_pair_count", 0) > 0]
+        else:
+            effective_root_ids = []
+            for rid in nominal_root_ids:
+                rec = cache.get_root(rid)
+                if rec and (rec.get("target_evaluable_pair_count", 0) > 0 or any(p.get("target_label") is not None for p in rec.get("pairs", []))):
+                    effective_root_ids.append(rid)
+                    
+        for rid in validation_root_ids:
+            if hasattr(cache, "roots") and cache.roots:
+                if cache.roots[rid].get("target_evaluable_pair_count", 0) < 1:
+                    raise ValueError("Fail if 0-evaluable roots in val/test")
+            else:
+                rec = cache.get_root(rid)
+                if not rec or (rec.get("target_evaluable_pair_count", 0) < 1 and not any(p.get("target_label") is not None for p in rec.get("pairs", []))):
+                    raise ValueError("Fail if 0-evaluable roots in val/test")
+                    
+        for rid in test_root_ids:
+            if hasattr(cache, "roots") and cache.roots:
+                if cache.roots[rid].get("target_evaluable_pair_count", 0) < 1:
+                    raise ValueError("Fail if 0-evaluable roots in val/test")
+            else:
+                rec = cache.get_root(rid)
+                if not rec or (rec.get("target_evaluable_pair_count", 0) < 1 and not any(p.get("target_label") is not None for p in rec.get("pairs", []))):
+                    raise ValueError("Fail if 0-evaluable roots in val/test")
+                    
+        def loader(rid: str):
+            rec = cache.get_root(rid)
+            if not rec:
+                raise ValueError(f"Root {rid} not found in cache")
+            read_and_validate_roots([rec])
+            recs = construct_learner_records(rec, condition)
+            if not recs:
+                return None
+            return build_root_tensors(torch, recs, device)
+            
+        nom_root_ids = nominal_root_ids
+        val_root_ids = validation_root_ids
+        tst_root_ids = test_root_ids
+        
+    elif training_root_records is not None:
+        if len(training_root_records) != nominal_budget:
+            raise ValueError("Nominal root count mismatch")
+            
+        sorted_recs = sorted(training_root_records, key=lambda x: canonical_budget_order(x["root_identity"]))
+        if [r["root_identity"] for r in training_root_records] != [r["root_identity"] for r in sorted_recs][:nominal_budget]:
+            raise ValueError("Invalid training roots prefix")
+            
+        calculated_train_digest = canonical_root_population_digest([r["root_identity"] for r in training_root_records])
+        if calculated_train_digest != nominal_root_population_digest:
+            raise ValueError("Train population digest mismatch")
+        
+        calculated_val_digest = canonical_root_population_digest([r["root_identity"] for r in validation_root_records])
+        if calculated_val_digest != validation_population_digest:
+            raise ValueError("Validation population digest mismatch")
+            
+        calculated_test_digest = canonical_root_population_digest([r["root_identity"] for r in test_root_records])
+        if calculated_test_digest != test_population_digest:
+            raise ValueError("Test population digest mismatch")
+            
+        records_map = {r["root_identity"]: r for r in training_root_records}
+        for r in validation_root_records:
+            records_map[r["root_identity"]] = r
+        for r in test_root_records:
+            records_map[r["root_identity"]] = r
+            
+        nom_root_ids = tuple(r["root_identity"] for r in training_root_records)
+        val_root_ids = tuple(r["root_identity"] for r in validation_root_records)
+        tst_root_ids = tuple(r["root_identity"] for r in test_root_records)
+        
+        effective_root_ids = [
+            r["root_identity"] for r in training_root_records
+            if r.get("target_evaluable_pair_count", sum(1 for p in r.get("pairs", []) if p.get("target_label") is not None)) > 0
+        ]
+        
+        for r in validation_root_records:
+            eval_c = r.get("target_evaluable_pair_count", sum(1 for p in r.get("pairs", []) if p.get("target_label") is not None))
+            if eval_c < 1:
+                raise ValueError("Fail if 0-evaluable roots in val/test")
+                
+        for r in test_root_records:
+            eval_c = r.get("target_evaluable_pair_count", sum(1 for p in r.get("pairs", []) if p.get("target_label") is not None))
+            if eval_c < 1:
+                raise ValueError("Fail if 0-evaluable roots in val/test")
+                
+        def loader(rid: str):
+            rec = records_map.get(rid)
+            if not rec:
+                raise ValueError(f"Root {rid} not found")
+            read_and_validate_roots([rec])
+            recs = construct_learner_records(rec, condition)
+            if not recs:
+                return None
+            return build_root_tensors(torch, recs, device)
+    else:
+        raise ValueError("Either cache or training_root_records must be provided")
 
-    if not val_roots:
+    if not val_root_ids:
         raise ValueError("Validation population cannot be empty.")
         
     best_val_nll = float('inf')
@@ -439,9 +525,7 @@ def run_training_job(
     non_improvement = 0
     val_trace = []
     
-    effective_root_ids = [r["root_identity"] for r in training_root_records if r["root_identity"] in effective_train_roots]
     effective_root_population_digest = canonical_root_population_digest(effective_root_ids)
-    val_root_ids = [r["root_identity"] for r in validation_root_records]
     test_eval_count = 0
     
     for epoch in range(200):
@@ -454,15 +538,20 @@ def run_training_job(
             B = len(batch_rids)
             total_loss = 0
             for rid in batch_rids:
-                x_spatial, x_side, y = effective_train_roots[rid]
+                tensors = loader(rid)
+                if tensors is None:
+                    continue
+                x_spatial, x_side, y = tensors
                 logits = model(x_spatial, x_side)
                 root_loss = loss_fn(logits, y).mean()
                 total_loss += root_loss
+                del tensors, x_spatial, x_side, y, logits, root_loss
             if B > 0:
                 (total_loss / B).backward()
                 optimizer.step()
+            del total_loss
             
-        val_nlls = evaluate_roots(model, val_roots, val_root_ids, torch)
+        val_nlls = evaluate_roots(model, loader, list(val_root_ids), torch)
         val_loss = sum(val_nlls.values()) / len(val_nlls)
         if not math.isfinite(val_loss):
             raise ValueError("Non-finite validation loss encountered")
@@ -483,8 +572,7 @@ def run_training_job(
             
     model.load_state_dict(best_state_dict)
     
-    test_root_ids = [r["root_identity"] for r in test_root_records]
-    test_nlls = evaluate_roots(model, test_roots, test_root_ids, torch)
+    test_nlls = evaluate_roots(model, loader, list(tst_root_ids), torch)
     test_eval_count += 1
     
     return {
@@ -492,7 +580,7 @@ def run_training_job(
         "condition": condition,
         "nominal_budget": nominal_budget,
         "seed": seed,
-        "nominal_root_count": len(training_root_records),
+        "nominal_root_count": len(nom_root_ids),
         "nominal_root_population_digest": nominal_root_population_digest,
         "effective_training_root_count": len(effective_root_ids),
         "effective_root_population_digest": effective_root_population_digest,
@@ -503,7 +591,7 @@ def run_training_job(
         "epochs_completed": epoch + 1,
         "validation_trace": val_trace,
         "test_evaluation_count": test_eval_count,
-        "test_root_ids": tuple(test_root_ids),
+        "test_root_ids": tuple(tst_root_ids),
         "test_root_losses": test_nlls,
         "canonical_model_state_sha": best_state_digest
     }
@@ -738,7 +826,12 @@ def _process_wrapper(spec, worker_fn, q):
     except Exception as e:
         q.put((False, e))
 
-def run_job_specs(job_specs: List[JobSpec], worker_fn, watchdog_timeout: float = 7200.0):
+def run_job_specs(
+    job_specs: List[JobSpec],
+    worker_fn,
+    watchdog_timeout: float = 7200.0,
+    on_result_success = None
+):
     import multiprocessing
     import queue
     results = []
@@ -781,29 +874,37 @@ def run_job_specs(job_specs: List[JobSpec], worker_fn, watchdog_timeout: float =
         success, res = res_tuple
         if not success:
             raise res
+            
+        if on_result_success is not None:
+            on_result_success(spec, res)
+            
         results.append(res)
         
     return results
 
 
-
-
-
 def run_downstream_worker(spec: JobSpec):
     cache = DerivedCache(spec.cache_path, spec.label_scientific_sha)
     
-    def get_and_validate(rids):
-        res = []
-        for r in rids:
-            root = cache.get_root(r)
-            if not root: raise ValueError(f"Root {r} not found")
-            res.append(root)
-        return read_and_validate_roots(res)
-        
-    nominal = get_and_validate(spec.nominal_root_ids)
-    val = get_and_validate(spec.validation_root_ids)
-    test = get_and_validate(spec.test_root_ids)
-    
+    if hasattr(cache, "roots") and cache.roots:
+        for r in spec.nominal_root_ids:
+            info = cache.roots.get(r)
+            if not info: raise ValueError(f"Root {r} not found")
+            if info.get("partition") != "TRAIN" or info.get("source_pair_count", 0) <= 0:
+                raise ValueError(f"Root {r} invalid partition or zero source pairs in TRAIN")
+                
+        for r in spec.validation_root_ids:
+            info = cache.roots.get(r)
+            if not info: raise ValueError(f"Root {r} not found")
+            if info.get("partition") != "VALIDATION" or info.get("target_evaluable_pair_count", 0) < 1:
+                raise ValueError(f"Root {r} invalid partition or zero evaluable pairs in VALIDATION")
+                
+        for r in spec.test_root_ids:
+            info = cache.roots.get(r)
+            if not info: raise ValueError(f"Root {r} not found")
+            if info.get("partition") != "TEST" or info.get("target_evaluable_pair_count", 0) < 1:
+                raise ValueError(f"Root {r} invalid partition or zero evaluable pairs in TEST")
+                
     if canonical_root_population_digest(spec.nominal_root_ids) != spec.nominal_root_population_digest:
         raise ValueError("Nominal digest mismatch in worker")
     if canonical_root_population_digest(spec.validation_root_ids) != spec.validation_population_digest:
@@ -815,9 +916,10 @@ def run_downstream_worker(spec: JobSpec):
         condition=spec.condition,
         nominal_budget=spec.nominal_budget,
         seed=spec.seed,
-        training_root_records=nominal,
-        validation_root_records=val,
-        test_root_records=test,
+        cache=cache,
+        nominal_root_ids=spec.nominal_root_ids,
+        validation_root_ids=spec.validation_root_ids,
+        test_root_ids=spec.test_root_ids,
         nominal_root_population_digest=spec.nominal_root_population_digest,
         validation_population_digest=spec.validation_population_digest,
         test_population_digest=spec.test_population_digest,
@@ -858,6 +960,40 @@ def run_downstream_worker(spec: JobSpec):
     
     return result
 
+def _validate_single_worker_result(spec: JobSpec, res: Dict):
+    if res.get("schema") != "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V14":
+        raise ValueError("Schema mismatch in parent validation")
+        
+    if res.get("condition") != spec.condition:
+        raise ValueError("condition mismatch")
+    if res.get("nominal_budget") != spec.nominal_budget:
+        raise ValueError("nominal_budget mismatch")
+    if res.get("seed") != spec.seed:
+        raise ValueError("seed mismatch")
+        
+    if res.get("approved_implementation_sha") != spec.approved_implementation_sha:
+        raise ValueError("approved_implementation_sha mismatch")
+    if res.get("protocol_v7_sha") != spec.protocol_v7_sha:
+        raise ValueError("protocol_v7_sha mismatch")
+    if res.get("seal_v2_sha") != spec.seal_v2_sha:
+        raise ValueError("seal_v2_sha mismatch")
+    if res.get("label_scientific_sha") != spec.label_scientific_sha:
+        raise ValueError("label_scientific_sha mismatch")
+    if res.get("runtime_v3_identity") != spec.runtime_v3_identity:
+        raise ValueError("runtime_v3_identity mismatch")
+    if res.get("runtime_v3_pin_sha") != spec.runtime_v3_pin_sha:
+        raise ValueError("runtime_v3_pin_sha mismatch")
+        
+    if res.get("nominal_root_population_digest") != spec.nominal_root_population_digest:
+        raise ValueError("nominal_root_population_digest mismatch")
+    if res.get("validation_population_digest") != spec.validation_population_digest:
+        raise ValueError("validation_population_digest mismatch")
+    if res.get("test_population_digest") != spec.test_population_digest:
+        raise ValueError("test_population_digest mismatch")
+        
+    if tuple(res.get("test_root_ids", ())) != tuple(spec.test_root_ids):
+        raise ValueError("test_root_ids mismatch in parent")
+
 def validate_completed_worker_results(job_specs: List[JobSpec], results: List[Dict]):
     if len(results) != len(job_specs):
         raise ValueError(f"Expected {len(job_specs)} results, got {len(results)}")
@@ -871,36 +1007,170 @@ def validate_completed_worker_results(job_specs: List[JobSpec], results: List[Di
     
     for spec in job_specs:
         res = res_dict[(spec.condition, spec.nominal_budget, spec.seed)]
+        _validate_single_worker_result(spec, res)
         
-        if res.get("schema") != "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V14":
-            raise ValueError("Schema mismatch in parent validation")
-            
-        if res["approved_implementation_sha"] != spec.approved_implementation_sha:
-            raise ValueError("approved_implementation_sha mismatch")
-        if res["protocol_v7_sha"] != spec.protocol_v7_sha:
-            raise ValueError("protocol_v7_sha mismatch")
-        if res["seal_v2_sha"] != spec.seal_v2_sha:
-            raise ValueError("seal_v2_sha mismatch")
-        if res["label_scientific_sha"] != spec.label_scientific_sha:
-            raise ValueError("label_scientific_sha mismatch")
-        if res["runtime_v3_identity"] != spec.runtime_v3_identity:
-            raise ValueError("runtime_v3_identity mismatch")
-        if res["runtime_v3_pin_sha"] != spec.runtime_v3_pin_sha:
-            raise ValueError("runtime_v3_pin_sha mismatch")
-            
-        if res["nominal_root_population_digest"] != spec.nominal_root_population_digest:
-            raise ValueError("nominal_root_population_digest mismatch")
-        if res["validation_population_digest"] != spec.validation_population_digest:
-            raise ValueError("validation_population_digest mismatch")
-        if res["test_population_digest"] != spec.test_population_digest:
-            raise ValueError("test_population_digest mismatch")
-            
-        if tuple(res["test_root_ids"]) != tuple(spec.test_root_ids):
-            raise ValueError("test_root_ids mismatch in parent")
-            
     return "PASS"
 
-def run_training_parent(approved_sha: str, cache_path: str, cache_sha: str, repo_root: str = "."):
+def make_sealed_worker_result(spec: JobSpec, worker_result: Dict) -> Dict:
+    for k in ["approved_implementation_sha", "protocol_v7_sha", "seal_v2_sha", 
+              "label_scientific_sha", "runtime_v3_identity", "runtime_v3_pin_sha"]:
+        if k not in worker_result:
+            worker_result[k] = getattr(spec, k)
+            
+    payload_json = json.dumps(worker_result, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    payload_sha = hashlib.sha256(payload_json.encode('utf-8')).hexdigest()
+    
+    envelope = {
+        "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_SEAL_V1",
+        "condition": spec.condition,
+        "nominal_budget": spec.nominal_budget,
+        "seed": spec.seed,
+        "approved_implementation_sha": spec.approved_implementation_sha,
+        "protocol_v7_sha": spec.protocol_v7_sha,
+        "seal_v2_sha": spec.seal_v2_sha,
+        "label_scientific_sha": spec.label_scientific_sha,
+        "runtime_v3_identity": spec.runtime_v3_identity,
+        "runtime_v3_pin_sha": spec.runtime_v3_pin_sha,
+        "nominal_root_population_digest": spec.nominal_root_population_digest,
+        "validation_population_digest": spec.validation_population_digest,
+        "test_population_digest": spec.test_population_digest,
+        "payload_sha256": payload_sha,
+        "payload": worker_result
+    }
+    return envelope
+
+def save_sealed_worker_result(result_dir: str, spec: JobSpec, envelope: Dict) -> str:
+    os.makedirs(result_dir, exist_ok=True)
+    filename = f"worker_result_{spec.condition}_b{spec.nominal_budget}_s{spec.seed}.json"
+    final_path = os.path.join(result_dir, filename)
+    
+    if os.path.exists(final_path):
+        raise ValueError(f"Refusing to overwrite existing result file: {final_path}")
+        
+    temp_path = os.path.join(result_dir, f".tmp_{filename}_{os.getpid()}")
+    content = json.dumps(envelope, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    
+    with open(temp_path, "w", encoding="utf-8") as f:
+        f.write(content)
+        f.flush()
+        os.fsync(f.fileno())
+        
+    os.replace(temp_path, final_path)
+    
+    try:
+        dir_fd = os.open(result_dir, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    except Exception:
+        pass
+    return final_path
+
+def validate_sealed_worker_result(envelope: Dict, spec: JobSpec) -> Dict:
+    if not isinstance(envelope, dict):
+        raise ValueError("Envelope must be a dict")
+    if envelope.get("schema") != "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_SEAL_V1":
+        raise ValueError(f"Invalid envelope schema: {envelope.get('schema')}")
+        
+    if envelope.get("condition") != spec.condition:
+        raise ValueError("Envelope condition mismatch")
+    if envelope.get("nominal_budget") != spec.nominal_budget:
+        raise ValueError("Envelope nominal_budget mismatch")
+    if envelope.get("seed") != spec.seed:
+        raise ValueError("Envelope seed mismatch")
+        
+    if envelope.get("approved_implementation_sha") != spec.approved_implementation_sha:
+        raise ValueError("Envelope approved_implementation_sha mismatch")
+    if envelope.get("protocol_v7_sha") != spec.protocol_v7_sha:
+        raise ValueError("Envelope protocol_v7_sha mismatch")
+    if envelope.get("seal_v2_sha") != spec.seal_v2_sha:
+        raise ValueError("Envelope seal_v2_sha mismatch")
+    if envelope.get("label_scientific_sha") != spec.label_scientific_sha:
+        raise ValueError("Envelope label_scientific_sha mismatch")
+    if envelope.get("runtime_v3_identity") != spec.runtime_v3_identity:
+        raise ValueError("Envelope runtime_v3_identity mismatch")
+    if envelope.get("runtime_v3_pin_sha") != spec.runtime_v3_pin_sha:
+        raise ValueError("Envelope runtime_v3_pin_sha mismatch")
+        
+    if envelope.get("nominal_root_population_digest") != spec.nominal_root_population_digest:
+        raise ValueError("Envelope nominal_root_population_digest mismatch")
+    if envelope.get("validation_population_digest") != spec.validation_population_digest:
+        raise ValueError("Envelope validation_population_digest mismatch")
+    if envelope.get("test_population_digest") != spec.test_population_digest:
+        raise ValueError("Envelope test_population_digest mismatch")
+        
+    payload = envelope.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError("Envelope payload must be a dict")
+        
+    payload_json = json.dumps(payload, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    calculated_sha = hashlib.sha256(payload_json.encode('utf-8')).hexdigest()
+    if calculated_sha != envelope.get("payload_sha256"):
+        raise ValueError("Envelope payload SHA256 mismatch")
+        
+    _validate_single_worker_result(spec, payload)
+    
+    if payload.get("nominal_root_count") != spec.nominal_budget:
+        raise ValueError("Payload nominal_root_count mismatch")
+    if not (0 <= payload.get("effective_training_root_count", -1) <= payload.get("nominal_root_count")):
+        raise ValueError("Payload effective_training_root_count bounds error")
+    if payload.get("test_evaluation_count") != 1:
+        raise ValueError("Payload test_evaluation_count != 1")
+    if tuple(payload.get("test_root_ids", ())) != tuple(spec.test_root_ids):
+        raise ValueError("Payload test_root_ids mismatch")
+        
+    return payload
+
+def scan_and_validate_results_directory(result_dir: str, job_specs: List[JobSpec]) -> Dict[Tuple[str, int, int], Dict]:
+    if not os.path.exists(result_dir):
+        return {}
+        
+    spec_map = {(s.condition, s.nominal_budget, s.seed): s for s in job_specs}
+    expected_filenames = {
+        f"worker_result_{s.condition}_b{s.nominal_budget}_s{s.seed}.json": (s.condition, s.nominal_budget, s.seed)
+        for s in job_specs
+    }
+    
+    entries = os.listdir(result_dir)
+    valid_results = {}
+    
+    for entry in sorted(entries):
+        if entry == ".gitignore":
+            continue
+            
+        full_path = os.path.join(result_dir, entry)
+        
+        if entry.startswith(".tmp") or entry not in expected_filenames:
+            raise ValueError(f"Foreign, partial, or unexpected file in result directory: {entry}")
+            
+        if not os.path.isfile(full_path):
+            raise ValueError(f"Non-file entry in result directory: {entry}")
+            
+        try:
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            envelope = json.loads(content)
+        except Exception as e:
+            raise ValueError(f"Corrupt or unparseable result file {entry}: {e}")
+            
+        tuple_key = expected_filenames[entry]
+        if tuple_key in valid_results:
+            raise ValueError(f"Duplicate result for tuple: {tuple_key}")
+            
+        spec = spec_map[tuple_key]
+        payload = validate_sealed_worker_result(envelope, spec)
+        valid_results[tuple_key] = payload
+        
+    return valid_results
+
+def run_training_parent(
+    approved_sha: str,
+    cache_path: str,
+    cache_sha: str,
+    repo_root: str = ".",
+    result_dir: str = "artifacts/research/cp_representation_efficiency_training_v1/worker_results"
+):
     verify_approved_sha_gate(approved_sha, repo_root)
     check_real_training_authorization()
     ev_id = verify_training_evidence_preflight(approved_sha, repo_root)
@@ -912,8 +1182,34 @@ def run_training_parent(approved_sha: str, cache_path: str, cache_sha: str, repo
     populations = build_frozen_populations(cache)
     job_specs = build_job_specs(populations, ev_id, cache_path, approved_sha)
     
-    results = run_job_specs(job_specs, run_downstream_worker)
-    validate_completed_worker_results(job_specs, results)
+    # Resumption scanner: validate existing sealed results
+    existing_results = scan_and_validate_results_directory(result_dir, job_specs)
+    
+    # Calculate missing jobs
+    missing_specs = [
+        s for s in job_specs
+        if (s.condition, s.nominal_budget, s.seed) not in existing_results
+    ]
+    
+    completed_results = dict(existing_results)
+    
+    if missing_specs:
+        def on_success(spec: JobSpec, res: Dict):
+            _validate_single_worker_result(spec, res)
+            envelope = make_sealed_worker_result(spec, res)
+            save_sealed_worker_result(result_dir, spec, envelope)
+            
+        new_results = run_job_specs(missing_specs, run_downstream_worker, on_result_success=on_success)
+        for res in new_results:
+            tuple_key = (res["condition"], res["nominal_budget"], res["seed"])
+            completed_results[tuple_key] = res
+            
+    # Finalization: require exactly all 160 frozen tuples
+    if len(completed_results) != len(job_specs):
+        raise ValueError(f"Expected {len(job_specs)} results, got {len(completed_results)}")
+        
+    ordered_results = [completed_results[(s.condition, s.nominal_budget, s.seed)] for s in job_specs]
+    validate_completed_worker_results(job_specs, ordered_results)
     return "STOP_BEFORE_SCIENTIFIC_ANALYSIS"
 
 

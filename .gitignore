@@ -17,6 +17,7 @@ artifacts/research/cp_target_labels_2026_07/*.jsonl
 artifacts/research/cp_target_labels_2026_07/*.jsonl.zst
 artifacts/research/cp_target_labels_2026_07/*.tmp
 artifacts/research/cp_target_reconstruction_2026_09/
+artifacts/research/cp_representation_efficiency_training_v1/
 
 # NEVER run destructive `git clean` in this repository without first:
 # git clean -nd
