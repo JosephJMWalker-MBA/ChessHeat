@@ -1,0 +1,30 @@
+{
+  "schema": "CP_REPRESENTATION_EFFICIENCY_PRODUCTION_PREFLIGHT_V2_SUPPLEMENT_1",
+  "preflight_v2_commit": "912845fd37f3f8ef6e4ca431f18bb3fc84f8a006",
+  "preflight_v2_verdict": "PRODUCTION_DOWNSTREAM_TRAINING_EXECUTION_PREFLIGHT_V2_FAIL",
+  "claim_corrections": [
+    {
+      "item": 1,
+      "correction": "Validation lower-bound tensors are approximately 127.3% OF the torch.mps.recommended_max_memory working set (16183220160 / 12713115648), i.e., approximately 27.3% OVER that working set, not exceeding it by 127.3%."
+    },
+    {
+      "item": 2,
+      "correction": "Do not state that catastrophic swap thrashing or a hard OOM is mathematically guaranteed. The rigorously demonstrated scientific finding is: V15 requires simultaneous tensor payload exceeding both physical RAM and the recommended MPS working set even at the smallest nominal budget (32.84 GB tensor lower bound vs 16 GB RAM / 11.84 GB MPS working set), before excluded overheads; therefore V15 eager production execution is infeasible as written."
+    },
+    {
+      "item": 3,
+      "correction": "The narrative estimate of approximately 10-15 GiB Python parsed-object heap was not directly measured. Retained empirical findings are strictly: PARSED_OBJECT_RESIDENCY_OVERLAPS_TENSOR_RESIDENCY and PEAK_CPU_OBJECT_MEMORY_NOT_EXACTLY_BOUNDED."
+    },
+    {
+      "item": 4,
+      "correction": "The worker-result storage fixture was an approximate structural proxy rather than an exact V14 payload fixture. Storage headroom remains strongly supported (>20x margin over conservative 300 MiB), but exact worker-result byte size will be measured from a canonical non-scientific fixture in V16."
+    },
+    {
+      "item": 5,
+      "correction": "Corrected next_blocker: PRODUCTION_DOWNSTREAM_TRAINING_EXECUTION_REPAIR_V16_REQUIRED. Preflight V2 verdict remains unchanged: PRODUCTION_DOWNSTREAM_TRAINING_EXECUTION_PREFLIGHT_V2_FAIL."
+    }
+  ],
+  "corrected_next_blocker": "PRODUCTION_DOWNSTREAM_TRAINING_EXECUTION_REPAIR_V16_REQUIRED",
+  "real_training_count": 0,
+  "scientific_analysis_performed": false
+}
