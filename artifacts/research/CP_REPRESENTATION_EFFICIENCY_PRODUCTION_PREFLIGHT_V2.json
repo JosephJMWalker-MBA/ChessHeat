@@ -1,0 +1,276 @@
+{
+  "schema": "CP_REPRESENTATION_EFFICIENCY_PRODUCTION_PREFLIGHT_V2",
+  "commit_head": "7dc937f3127ac76235503cfee145143460d5a20c",
+  "approved_implementation_sha": "82b8da2285d5bf48cbd27bd1f30388c79e92f347",
+  "authoritative_audit_sha": "47efbe7241986b5a20c9b5031d5934358cfdd2dd",
+  "recovery_supplement_commit_sha": "7dc937f3127ac76235503cfee145143460d5a20c",
+  "protocol_v7_sha": "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef",
+  "label_cache": {
+    "path": "artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v6.jsonl",
+    "sha256": "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2",
+    "bytes": 3933405259,
+    "indexed_roots": 33859
+  },
+  "runtime_identity": "CHESSHEAT_ML_RUNTIME_V3",
+  "populations": {
+    "eligible_train_universe_count": 23350,
+    "validation_root_count": 5094,
+    "validation_population_digest": "6bba0443a359d788f9a017652507c71255a7df5971753c68c3143b244ea0d601",
+    "test_root_count": 5000,
+    "test_population_digest": "2bbf8394e7d58187e0c22ed707a585dbc7e1afc53626d3dbb242716d9221f277",
+    "frozen_budgets": [
+      250,
+      500,
+      1000,
+      2000,
+      4000,
+      8000,
+      16000,
+      20000
+    ],
+    "frozen_seeds": [
+      1729,
+      2718,
+      31415,
+      65537,
+      104729
+    ],
+    "budget_population_digests": {
+      "250": "75cc7536e82df431310a463921285ce227a579b3faee7e8d8ab4829871b89527",
+      "500": "3216d08fe6c52f0670b1ac222b251ce89b141df088435d3ba896777472eb03d2",
+      "1000": "784affff47d99926f118f14198b3d46512c32871713f54abd5d4b863c59e70f0",
+      "2000": "8b5816b1eda3aefd72ef3a1b0c087b5d633100a519f7413425bfc6c7f61bda97",
+      "4000": "d35bdc1f296cea155c791aa3041a4d4f2a8ffa3d918bc5a5b238a3fcc048f248",
+      "8000": "0dad1af58610e8d1c75100d280a6f506a299202471007cf54f654ab4a0d17330",
+      "16000": "551e0f1876a526929dd529f7288d89966a0018f33972d81b16e404bbfacb68f9",
+      "20000": "9865c537ac87b4da7595bf5a4c0c13c5fddf9e07af0ffb464c118e0f734cf6db"
+    }
+  },
+  "pair_census": {
+    "validation": {
+      "root_count": 5094,
+      "source_pair_count": 2718955,
+      "target_evaluable_pair_count": 2718955
+    },
+    "test": {
+      "root_count": 5000,
+      "source_pair_count": 2671637,
+      "target_evaluable_pair_count": 2671637
+    },
+    "train_budgets": {
+      "250": {
+        "nominal_roots": 250,
+        "source_pairs": 126052,
+        "target_evaluable_pairs": 126052
+      },
+      "500": {
+        "nominal_roots": 500,
+        "source_pairs": 258691,
+        "target_evaluable_pairs": 258691
+      },
+      "1000": {
+        "nominal_roots": 1000,
+        "source_pairs": 516335,
+        "target_evaluable_pairs": 516335
+      },
+      "2000": {
+        "nominal_roots": 2000,
+        "source_pairs": 1042502,
+        "target_evaluable_pairs": 1042502
+      },
+      "4000": {
+        "nominal_roots": 4000,
+        "source_pairs": 2090610,
+        "target_evaluable_pairs": 2090610
+      },
+      "8000": {
+        "nominal_roots": 8000,
+        "source_pairs": 4224947,
+        "target_evaluable_pairs": 4224947
+      },
+      "16000": {
+        "nominal_roots": 16000,
+        "source_pairs": 8497393,
+        "target_evaluable_pairs": 8497393
+      },
+      "20000": {
+        "nominal_roots": 20000,
+        "source_pairs": 10627519,
+        "target_evaluable_pairs": 10627519
+      }
+    },
+    "global_pair_distribution": {
+      "population_total_roots": 33859,
+      "min_pairs_per_root": 0,
+      "median_pairs_per_root": 528,
+      "p95_pairs_per_root": 1081,
+      "p99_pairs_per_root": 1326,
+      "max_pairs_per_root": 2016,
+      "max_pair_root_identity": "a03ccf7b092904f09a8dd24e767541e8832945dfd22c902520750991b6916ea7"
+    }
+  },
+  "serialized_bytes_census": {
+    "validation_serialized_bytes": 601112096,
+    "test_serialized_bytes": 590575768,
+    "train_budgets_serialized_bytes": {
+      "250": 27883853,
+      "500": 57209664,
+      "1000": 114182078,
+      "2000": 230549618,
+      "4000": 462321446,
+      "8000": 934158080,
+      "16000": 1878686722,
+      "20000": 2349561201
+    },
+    "max_job_total_serialized_input_bytes": 3541249065
+  },
+  "tensor_memory_analysis": {
+    "steady_state_formula": "(19 * 8 * 8 * 4) + (270 * 4) + 8 = 5952 bytes per evaluable pair",
+    "bytes_per_evaluable_pair": 5952,
+    "validation_tensor_lower_bound_bytes": 16183220160,
+    "test_tensor_lower_bound_bytes": 15901583424,
+    "validation_plus_test_fixed_tensor_bytes": 32084803584,
+    "train_tensor_lower_bound_bytes": {
+      "250": 750261504,
+      "500": 1539728832,
+      "1000": 3073225920,
+      "2000": 6204971904,
+      "4000": 12443310720,
+      "8000": 25146884544,
+      "16000": 50576483136,
+      "20000": 63254993088
+    },
+    "simultaneous_job_tensor_lower_bound_bytes": {
+      "250": 32835065088,
+      "500": 33624532416,
+      "1000": 35158029504,
+      "2000": 38289775488,
+      "4000": 44528114304,
+      "8000": 57231688128,
+      "16000": 82661286720,
+      "20000": 95339796672
+    },
+    "lower_bound_exclusions": [
+      "PyTorch tensor-object Python wrapper overhead",
+      "temporary tensors during list construction and torch.stack staging",
+      "raw parsed JSON records retained simultaneously in Python lists",
+      "Python dictionary, list, and integer objects",
+      "model parameters, gradients, and optimizer state",
+      "forward/backward activations and loss buffers",
+      "MPS allocator caching and fragmentation",
+      "DerivedCache index memory",
+      "process runtime and library overhead"
+    ]
+  },
+  "hardware_memory_comparison": {
+    "physical_memory_bytes": 17179869184,
+    "physical_memory_human": "16.00 GiB",
+    "mps_recommended_working_set_bytes": 12713115648,
+    "mps_recommended_working_set_human": "11.84 GiB",
+    "mps_driver_allocated_bytes": 475136,
+    "mps_current_allocated_bytes": 0,
+    "budget_simultaneous_tensor_ratios": {
+      "250": {
+        "ratio_to_physical_ram": 1.911,
+        "ratio_to_mps_recommended": 2.583
+      },
+      "500": {
+        "ratio_to_physical_ram": 1.957,
+        "ratio_to_mps_recommended": 2.645
+      },
+      "1000": {
+        "ratio_to_physical_ram": 2.046,
+        "ratio_to_mps_recommended": 2.766
+      },
+      "2000": {
+        "ratio_to_physical_ram": 2.229,
+        "ratio_to_mps_recommended": 3.012
+      },
+      "4000": {
+        "ratio_to_physical_ram": 2.592,
+        "ratio_to_mps_recommended": 3.503
+      },
+      "8000": {
+        "ratio_to_physical_ram": 3.331,
+        "ratio_to_mps_recommended": 4.502
+      },
+      "16000": {
+        "ratio_to_physical_ram": 4.812,
+        "ratio_to_mps_recommended": 6.502
+      },
+      "20000": {
+        "ratio_to_physical_ram": 5.549,
+        "ratio_to_mps_recommended": 7.499
+      }
+    },
+    "production_job_20000_classification": "EAGER_MPS_INFEASIBLE_BY_LOWER_BOUND"
+  },
+  "peak_construction_semantics": {
+    "transient_per_pair_list_holding": true,
+    "torch_stack_overlap": true,
+    "classification": "PEAK_MEMORY_NOT_EXACTLY_BOUNDED",
+    "simultaneous_partition_dictionaries": true,
+    "finding": "build_root_tensors holds per-pair Python tensor lists while torch.stack allocates destination stacked tensors. effective_train_roots, val_roots, and test_roots dictionaries all remain live simultaneously throughout the entire worker training lifecycle."
+  },
+  "cpu_record_residency_audit": {
+    "max_budget_serialized_input_bytes_lower_bound": 3541249065,
+    "parsed_object_residency_overlaps_tensor_residency": true,
+    "finding": "run_downstream_worker() passes fully parsed record dictionaries (training_root_records, validation_root_records, test_root_records) into run_training_job(), where they remain retained in scope as function arguments while tensor dictionaries are constructed and evaluated."
+  },
+  "durable_worker_result_audit": {
+    "durable_worker_result_present": false,
+    "defect_class": "NO_DURABLE_WORKER_RESULT_SEAL",
+    "loss_mode": "Parent receives completed worker dictionaries across IPC queue into an in-memory list without writing results to disk. A crash, OOM kill, or interruption at job N loses all N-1 previously completed results."
+  },
+  "resumption_requirements": {
+    "minimum_contract": [
+      "1. One immutable result artifact per (condition, nominal_budget, seed)",
+      "2. Canonical deterministic JSON serialization",
+      "3. SHA256 hashing of completed result file",
+      "4. Cryptographic binding to approved implementation SHA, protocol SHA, label scientific SHA, runtime identity, condition, budget, seed, and population digests",
+      "5. Write-to-temp + fsync + atomic rename pattern",
+      "6. No silent overwrite of an existing completed result",
+      "7. Startup validation scan over existing sealed files before reuse",
+      "8. Fail-closed behavior on corrupt, partial, foreign, duplicate, or mismatched results",
+      "9. Scheduler executes missing jobs only",
+      "10. Parent finalization strictly verifies the complete 160-tuple set",
+      "11. Downstream scientific analysis remains separately gated until all 160 results are sealed"
+    ],
+    "fresh_process_determinism_sufficiency": "Fresh-process deterministic tiny job evidence establishes RNG isolation, but is insufficient by itself to license resumption without an explicit non-scientific test verifying scanner fail-closed behavior on partial/corrupt artifacts."
+  },
+  "scheduler_order_independence": {
+    "verdict": "JOB_ORDER_INDEPENDENCE_DEMONSTRATED_BY_IMPLEMENTATION",
+    "isolation_mechanisms": [
+      "Each job runs in an independent fresh multiprocessing.Process",
+      "RNG seeds (torch, random, numpy) are explicitly reset per job via configure_runtime(seed)",
+      "Model, optimizer, loss, and cache readers are instantiated inside worker scope",
+      "No shared mutable module state, cross-job checkpoints, or global buffers",
+      "Downstream evaluation keys results strictly by (condition, budget, seed) tuple independently of dispatch sequence"
+    ]
+  },
+  "storage_headroom": {
+    "available_disk_bytes": 7023521792,
+    "available_disk_human": "6.54 GiB",
+    "estimated_worker_result_bytes_per_file": {
+      "compact": 767545,
+      "indented": 823643
+    },
+    "total_160_jobs_estimated_bytes": {
+      "compact": 122807200,
+      "indented": 131782880
+    },
+    "conservative_storage_budget_with_temp_and_margin": 314572800,
+    "headroom_status": "ABUNDANT_HEADROOM (approx 22x margin over conservative 300 MiB requirement)"
+  },
+  "execution_ceiling": {
+    "real_training_count": 0,
+    "scientific_analysis_performed": false
+  },
+  "failure_classes": [
+    "EAGER_MPS_MEMORY_INFEASIBLE",
+    "NO_DURABLE_WORKER_RESULT_SEAL",
+    "RESUMPTION_SEMANTICS_INADEQUATE"
+  ],
+  "verdict": "PRODUCTION_DOWNSTREAM_TRAINING_EXECUTION_PREFLIGHT_V2_FAIL",
+  "next_blocker": "PRODUCTION_DOWNSTREAM_TRAINING_EXECUTION_PREFLIGHT_V2_REQUIRED"
+}
