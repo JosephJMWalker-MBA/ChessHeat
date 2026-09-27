@@ -4,7 +4,7 @@
   "scientific_class": "REPLICATION_EXACT",
   "scientific_admission_policy": "REFERENCE_ONLY_NO_SCIENTIFIC_ADMISSION",
   "status": "AUTHORIZED_FOR_CONTRIBUTOR_EXECUTION",
-  "approved_science_sha": "a72822c7ff5825b2003b07686f89664d1b2ed176",
+  "approved_science_sha": "b40f7b8f93f1f1fd0c0e6a39a8eae63c1f2458e6",
   "bound_files": [
     "src/chessheat/contributor_compute.py",
     "scripts/run_contributor_reference_job.py"
