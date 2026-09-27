@@ -14,6 +14,7 @@ import json
 import os
 import platform
 import re
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -503,6 +504,29 @@ def verify_accepted_work_unit(work_dir: Path, unit: Dict[str, Any]) -> Dict[str,
     return accepted
 
 
+def _terminate_process(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGTERM)
+        else:
+            proc.terminate()
+        proc.wait(timeout=10)
+        return
+    except Exception:
+        pass
+
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()
+        proc.wait(timeout=10)
+    except Exception:
+        pass
+
+
 def _execute_unit(
     unit: Dict[str, Any],
     repo_root: Path,
@@ -539,27 +563,36 @@ def _execute_unit(
     timed_out = False
     interrupted = False
     error_text = None
+    proc: Optional[subprocess.Popen] = None
     try:
         with open(stdout_path, "wb") as stdout, open(stderr_path, "wb") as stderr:
             try:
-                proc = subprocess.run(
+                proc = subprocess.Popen(
                     argv,
                     cwd=repo_root,
                     env=env,
                     stdout=stdout,
                     stderr=stderr,
-                    timeout=unit.get("timeout_seconds"),
                     shell=False,
-                    check=False,
+                    start_new_session=(os.name == "posix"),
                 )
-                exit_code = proc.returncode
-            except subprocess.TimeoutExpired:
-                timed_out = True
+                try:
+                    exit_code = proc.wait(timeout=unit.get("timeout_seconds"))
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                    _terminate_process(proc)
+                    exit_code = proc.poll()
             except KeyboardInterrupt:
                 interrupted = True
+                if proc is not None:
+                    _terminate_process(proc)
+                    exit_code = proc.poll()
                 raise
             except Exception as exc:
                 error_text = repr(exc)
+                if proc is not None:
+                    _terminate_process(proc)
+                    exit_code = proc.poll()
     finally:
         ended = _utc_now()
         attempt = {
