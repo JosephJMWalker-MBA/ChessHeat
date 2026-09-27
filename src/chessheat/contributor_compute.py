@@ -27,6 +27,12 @@ SCIENTIFIC_CLASSES = {
     "PROSPECTIVE_SHARD",
     "COMPUTE_EXTENSION",
 }
+ADMISSION_POLICIES = {
+    "REFERENCE_ONLY_NO_SCIENTIFIC_ADMISSION",
+    "CANDIDATE_REPLICATION_EVIDENCE",
+    "CANDIDATE_PROSPECTIVE_SHARD",
+    "CANDIDATE_EXTENSION_EVIDENCE",
+}
 _WORK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -90,8 +96,25 @@ def validate_packet(packet: Dict[str, Any]) -> None:
     if not isinstance(packet_id, str) or not _WORK_ID_RE.match(packet_id):
         raise ContributorComputeError("Invalid packet_id")
 
-    if packet.get("scientific_class") not in SCIENTIFIC_CLASSES:
+    scientific_class = packet.get("scientific_class")
+    if scientific_class not in SCIENTIFIC_CLASSES:
         raise ContributorComputeError("Invalid scientific_class")
+
+    admission_policy = packet.get("scientific_admission_policy")
+    if admission_policy not in ADMISSION_POLICIES:
+        raise ContributorComputeError("Invalid scientific_admission_policy")
+    allowed_admission = {
+        "REPLICATION_EXACT": {
+            "REFERENCE_ONLY_NO_SCIENTIFIC_ADMISSION",
+            "CANDIDATE_REPLICATION_EVIDENCE",
+        },
+        "PROSPECTIVE_SHARD": {"CANDIDATE_PROSPECTIVE_SHARD"},
+        "COMPUTE_EXTENSION": {"CANDIDATE_EXTENSION_EVIDENCE"},
+    }
+    if admission_policy not in allowed_admission[scientific_class]:
+        raise ContributorComputeError(
+            "scientific_admission_policy is incompatible with scientific_class"
+        )
 
     approved = packet.get("approved_science_sha")
     if not isinstance(approved, str) or not _SHA40_RE.match(approved):
@@ -157,6 +180,17 @@ def validate_packet(packet: Dict[str, Any]) -> None:
             raise ContributorComputeError(f"{wid}: required_outputs must be a list")
         for rel in outputs:
             _validate_relative_path(rel, f"{wid} required output")
+        expected_outputs = unit.get("expected_output_sha256", {})
+        if not isinstance(expected_outputs, dict):
+            raise ContributorComputeError(f"{wid}: expected_output_sha256 must be an object")
+        for rel, digest in expected_outputs.items():
+            _validate_relative_path(rel, f"{wid} expected output")
+            if rel not in outputs:
+                raise ContributorComputeError(
+                    f"{wid}: expected output must also be listed in required_outputs: {rel}"
+                )
+            if not isinstance(digest, str) or not _SHA256_RE.match(digest):
+                raise ContributorComputeError(f"{wid}: invalid expected SHA256 for {rel}")
 
 
 def _validate_relative_path(value: Any, label: str) -> None:
@@ -312,6 +346,7 @@ def preflight(
         "packet_id": packet["packet_id"],
         "packet_sha256": packet_sha,
         "scientific_class": packet["scientific_class"],
+        "scientific_admission_policy": packet["scientific_admission_policy"],
         "packet_status": packet.get("status"),
         "repository": repo_report,
         "engine": engine_report,
@@ -414,8 +449,14 @@ def _hash_required_outputs(work_dir: Path, unit: Dict[str, Any]) -> Dict[str, Di
             raise ContributorComputeError(f"Output escapes work unit directory: {rel}") from exc
         if not path.is_file():
             raise ContributorComputeError(f"Required output missing: {rel}")
+        actual_sha = sha256_file(path)
+        expected_sha = unit.get("expected_output_sha256", {}).get(rel)
+        if expected_sha is not None and actual_sha != expected_sha:
+            raise ContributorComputeError(
+                f"Required output SHA256 mismatch for {unit['work_unit_id']}:{rel}"
+            )
         outputs[rel] = {
-            "sha256": sha256_file(path),
+            "sha256": actual_sha,
             "size_bytes": path.stat().st_size,
         }
     return outputs
@@ -698,6 +739,7 @@ def run_packet(
         "packet_id": packet["packet_id"],
         "packet_sha256": preflight_report["packet_sha256"],
         "scientific_class": packet["scientific_class"],
+        "scientific_admission_policy": packet["scientific_admission_policy"],
         "approved_science_sha": packet["approved_science_sha"],
         "scientific_parameters_sha256": sha256_bytes(
             canonical_json_bytes(packet["scientific_parameters"])
@@ -754,6 +796,7 @@ def verify_bundle(bundle_dir: Union[os.PathLike, str]) -> Dict[str, Any]:
         "schema": "CHESSHEAT_CONTRIBUTOR_BUNDLE_VERIFICATION_V1",
         "packet_id": packet["packet_id"],
         "scientific_class": packet["scientific_class"],
+        "scientific_admission_policy": packet["scientific_admission_policy"],
         "work_unit_count": len(packet["work_units"]),
         "verdict": "PASS",
     }
