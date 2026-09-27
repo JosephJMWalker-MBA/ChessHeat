@@ -1,0 +1,56 @@
+{
+  "schema": "CHESSHEAT_CONTRIBUTOR_COMPUTE_V1_IMPLEMENTATION",
+  "branch": "contributor-compute-v1",
+  "branch_head_at_record": "75fc9ed1f889b2ebc3731fa3ea0506fb58f5f2ea",
+  "status": "IMPLEMENTED_AUDIT_REQUIRED",
+  "scientific_authorization_effect": "NONE",
+  "current_blocked_cp_only_experiment_authorized_for_contributor_execution": false,
+  "reference_packet": {
+    "path": "artifacts/research/contributor_compute_reference_packet_v1.json",
+    "packet_id": "CHESSHEAT-CONTRIBUTOR-REFERENCE-V1",
+    "execution_authorized": true,
+    "scientific_admission_policy": "REFERENCE_ONLY_NO_SCIENTIFIC_ADMISSION",
+    "purpose": "deterministic infrastructure plumbing check only"
+  },
+  "implemented_surfaces": [
+    "docs/CONTRIBUTOR_COMPUTE_PROTOCOL.md",
+    "docs/CONTRIBUTOR_COMPUTE_WRAPPER_SPEC.md",
+    "src/chessheat/contributor_compute.py",
+    "scripts/run_contributor_compute.py",
+    "scripts/run_contributor_reference_job.py",
+    "tests/test_contributor_compute.py",
+    "artifacts/research/contributor_compute_reference_packet_v1.json"
+  ],
+  "v1_guarantees_by_construction": [
+    "packet class and admission policy are explicit",
+    "execution authorization is separate from scientific admission",
+    "approved scientific commit must be an ancestor of execution HEAD",
+    "bound scientific files must match the approved commit byte-for-byte",
+    "Git work tree must be clean at preflight",
+    "bound scientific file digests are rechecked around accepted work",
+    "engine binary SHA256 can be bound by packet",
+    "only packet-declared runtime parallelism may adapt",
+    "scientific parameters are packet-controlled",
+    "work units execute without a shell",
+    "work-unit stdout/stderr and attempts are preserved",
+    "POSIX work units run in independent process sessions and are terminated on timeout/interruption",
+    "accepted work units are resumable and revalidated",
+    "required output hashes are recorded",
+    "known byte-identical outputs may be predeclared by SHA256",
+    "completed bundle receives a full file index",
+    "bundle verification fails closed on changed accepted outputs or attempt logs"
+  ],
+  "tests_added": [
+    "preflight and complete bundle roundtrip",
+    "resume reuses accepted work units",
+    "bundle tampering fails closed",
+    "unauthorized packets can preflight but cannot execute",
+    "bound scientific file drift fails closed",
+    "dirty repositories fail closed",
+    "runtime parallelism is packet bounded",
+    "engine digest mismatch fails preflight"
+  ],
+  "test_execution_status": "NOT_YET_INDEPENDENTLY_EXECUTED",
+  "audit_requirement": "Run the contributor-compute test suite from a clean checkout, execute the deterministic reference packet, inspect its bundle, and independently review packet/bundle admission semantics before merge to main.",
+  "next_blocker": "INDEPENDENT_CONTRIBUTOR_COMPUTE_V1_REAUDIT_REQUIRED"
+}
