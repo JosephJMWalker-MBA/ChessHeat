@@ -366,6 +366,7 @@ def _expand_argv(
         "{repo_root}": str(repo_root),
         "{work_dir}": str(work_dir),
         "{engine_path}": str(Path(engine_path).expanduser().resolve()) if engine_path else "",
+        "{python_executable}": str(Path(sys.executable).resolve()),
     }
     result = []
     for arg in argv:
@@ -376,6 +377,18 @@ def _expand_argv(
             raise ContributorComputeError("Work unit requires {engine_path} but none was supplied")
         result.append(expanded)
     return result
+
+
+def _assert_runtime_repo_guard(repo_root: Path, bound_hashes: Dict[str, str]) -> None:
+    status = _run_git(repo_root, ["status", "--porcelain"])
+    if status:
+        raise ContributorComputeError("Repository changed during contributor execution")
+    for rel, expected_sha in bound_hashes.items():
+        path = repo_root / rel
+        if not path.is_file() or sha256_file(path) != expected_sha:
+            raise ContributorComputeError(
+                f"Bound scientific file changed during contributor execution: {rel}"
+            )
 
 
 def _next_attempt_dir(work_dir: Path) -> Path:
@@ -455,6 +468,7 @@ def _execute_unit(
     bundle_dir: Path,
     engine_path: Optional[str],
     packet_id: str,
+    bound_hashes: Dict[str, str],
 ) -> Dict[str, Any]:
     wid = unit["work_unit_id"]
     work_dir = bundle_dir / "work_units" / wid
@@ -465,6 +479,7 @@ def _execute_unit(
         accepted = verify_accepted_work_unit(work_dir, unit)
         return {"work_unit_id": wid, "status": "REUSED", "accepted": accepted}
 
+    _assert_runtime_repo_guard(repo_root, bound_hashes)
     attempt_dir = _next_attempt_dir(work_dir)
     stdout_path = attempt_dir / "stdout.log"
     stderr_path = attempt_dir / "stderr.log"
@@ -530,6 +545,7 @@ def _execute_unit(
     if exit_code != 0:
         raise ContributorComputeError(f"{wid}: process exited with {exit_code}")
 
+    _assert_runtime_repo_guard(repo_root, bound_hashes)
     outputs = _hash_required_outputs(work_dir, unit)
     accepted = {
         "schema": "CHESSHEAT_CONTRIBUTOR_ACCEPTED_WORK_UNIT_V1",
@@ -630,12 +646,20 @@ def run_packet(
     started = _utc_now()
     results = []
     units = packet["work_units"]
+    bound_hashes = preflight_report["repository"]["bound_files"]
 
     try:
         if max_workers == 1:
             for unit in units:
                 results.append(
-                    _execute_unit(unit, repo_root, bundle_dir, engine_path, packet["packet_id"])
+                    _execute_unit(
+                        unit,
+                        repo_root,
+                        bundle_dir,
+                        engine_path,
+                        packet["packet_id"],
+                        bound_hashes,
+                    )
                 )
         else:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -647,6 +671,7 @@ def run_packet(
                         bundle_dir,
                         engine_path,
                         packet["packet_id"],
+                        bound_hashes,
                     ): unit["work_unit_id"]
                     for unit in units
                 }
@@ -657,6 +682,8 @@ def run_packet(
     except Exception:
         # Do not publish a final manifest/index for an incomplete invocation.
         raise
+
+    _assert_runtime_repo_guard(repo_root, bound_hashes)
 
     accepted = {}
     for unit in units:
@@ -672,6 +699,9 @@ def run_packet(
         "packet_sha256": preflight_report["packet_sha256"],
         "scientific_class": packet["scientific_class"],
         "approved_science_sha": packet["approved_science_sha"],
+        "scientific_parameters_sha256": sha256_bytes(
+            canonical_json_bytes(packet["scientific_parameters"])
+        ),
         "repo_head_sha": preflight_report["repository"]["head_sha"],
         "max_workers": max_workers,
         "started_at": started,
