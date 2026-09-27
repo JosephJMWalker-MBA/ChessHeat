@@ -169,6 +169,7 @@ A packet must identify:
 - permitted runtime-adaptive fields;
 - work-unit IDs;
 - command argv for each work unit;
+- scientific admission policy;
 - timeout/liveness policy;
 - required output paths;
 - whether exact output identity is expected.
@@ -176,6 +177,20 @@ A packet must identify:
 Packets should be committed to the ChessHeat repository before public use.
 
 A packet with status other than `AUTHORIZED_FOR_CONTRIBUTOR_EXECUTION` may be inspected and preflighted, but the wrapper must refuse to execute it.
+
+## Execution authorization is not scientific admission
+
+Every packet carries two distinct decisions:
+
+```text
+execution status
+!=
+scientific admission policy
+```
+
+An infrastructure reference packet may be authorized to execute while being permanently marked `REFERENCE_ONLY_NO_SCIENTIFIC_ADMISSION`.
+
+Scientific packets instead identify the kind of candidate evidence they may produce. Project-side review still decides whether a submitted bundle is actually admitted.
 
 ## Contributor execution lifecycle
 
