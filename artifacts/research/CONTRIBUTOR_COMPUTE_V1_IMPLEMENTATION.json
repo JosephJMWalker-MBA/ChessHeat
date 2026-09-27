@@ -1,0 +1,78 @@
+{
+  "schema": "CHESSHEAT_CONTRIBUTOR_COMPUTE_V1_IMPLEMENTATION",
+  "branch": "contributor-compute-v1",
+  "branch_head_at_record": "f00a212ba78274a43f6a2465df6e027be674afd2",
+  "status": "LOCAL_REAUDIT_PASS",
+  "scientific_authorization_effect": "NONE",
+  "current_blocked_cp_only_experiment_authorized_for_contributor_execution": false,
+  "reference_packet": {
+    "path": "artifacts/research/contributor_compute_reference_packet_v1.json",
+    "packet_id": "CHESSHEAT-CONTRIBUTOR-REFERENCE-V1",
+    "execution_authorized": true,
+    "scientific_admission_policy": "REFERENCE_ONLY_NO_SCIENTIFIC_ADMISSION",
+    "purpose": "deterministic infrastructure plumbing check only"
+  },
+  "implemented_surfaces": [
+    "docs/CONTRIBUTOR_COMPUTE_PROTOCOL.md",
+    "docs/CONTRIBUTOR_COMPUTE_WRAPPER_SPEC.md",
+    "src/chessheat/contributor_compute.py",
+    "scripts/run_contributor_compute.py",
+    "scripts/run_contributor_reference_job.py",
+    "tests/test_contributor_compute.py",
+    "artifacts/research/contributor_compute_reference_packet_v1.json"
+  ],
+  "v1_guarantees_by_construction": [
+    "packet class and admission policy are explicit",
+    "execution authorization is separate from scientific admission",
+    "approved scientific commit must be an ancestor of execution HEAD",
+    "bound scientific files must match the approved commit byte-for-byte",
+    "Git work tree must be clean at preflight",
+    "bound scientific file digests are rechecked around accepted work",
+    "engine binary SHA256 can be bound by packet",
+    "only packet-declared runtime parallelism may adapt",
+    "scientific parameters are packet-controlled",
+    "work units execute without a shell",
+    "work-unit stdout/stderr and attempts are preserved",
+    "POSIX work units run in independent process sessions and are terminated on timeout/interruption",
+    "accepted work units are resumable and revalidated",
+    "required output hashes are recorded",
+    "known byte-identical outputs may be predeclared by SHA256",
+    "completed bundle receives a full file index",
+    "bundle verification fails closed on changed accepted outputs or attempt logs"
+  ],
+  "tests_added": [
+    "preflight and complete bundle roundtrip",
+    "resume reuses accepted work units",
+    "bundle tampering fails closed",
+    "unauthorized packets can preflight but cannot execute",
+    "bound scientific file drift fails closed",
+    "dirty repositories fail closed",
+    "runtime parallelism is packet bounded",
+    "engine digest mismatch fails preflight"
+  ],
+  "test_execution_status": "8_PASSED_1_NONFAILING_WARNING",
+  "audit_requirement": "Satisfied locally on 2026-09-27: focused tests passed; dirty-tree gate failed closed as designed; deterministic reference packet completed from a clean working tree; completed bundle verifier returned PASS. Preserve approved_science_sha ancestry when merging.",
+  "next_blocker": "MERGE_WITH_APPROVED_SHA_ANCESTRY_PRESERVED",
+  "local_reaudit": {
+    "date": "2026-09-27",
+    "tested_repo_head": "f00a212ba78274a43f6a2465df6e027be674afd2",
+    "focused_test_command": "pytest -q tests/test_contributor_compute.py",
+    "focused_test_result": "8 passed, 1 warning in 4.97s",
+    "warning_qualification": "PyTorch optional NumPy initialization warning because NumPy was not installed; non-failing and unrelated to contributor reference execution semantics.",
+    "dirty_tree_preflight_observation": "Initial reference execution correctly failed closed while untracked dissemination files were present.",
+    "clean_reference_run": {
+      "packet_id": "CHESSHEAT-CONTRIBUTOR-REFERENCE-V1",
+      "packet_sha256": "27afcde57a98fbdc2a61df65b287b971ed36f0957600a99b72785e3132ea8182",
+      "approved_science_sha": "b40f7b8f93f1f1fd0c0e6a39a8eae63c1f2458e6",
+      "max_workers": 2,
+      "accepted_work_units": [
+        "REF001",
+        "REF002"
+      ],
+      "work_unit_count": 2,
+      "run_verdict": "COMPLETE",
+      "verification_verdict": "PASS",
+      "scientific_admission_policy": "REFERENCE_ONLY_NO_SCIENTIFIC_ADMISSION"
+    }
+  }
+}

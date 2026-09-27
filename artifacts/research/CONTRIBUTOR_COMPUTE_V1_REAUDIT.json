@@ -1,0 +1,47 @@
+{
+  "schema": "CHESSHEAT_CONTRIBUTOR_COMPUTE_V1_REAUDIT",
+  "date": "2026-09-27",
+  "tested_repo_head": "f00a212ba78274a43f6a2465df6e027be674afd2",
+  "verdict": "CONTRIBUTOR_COMPUTE_V1_REAUDIT_PASS",
+  "scientific_authorization_effect": "NONE",
+  "current_blocked_cp_only_experiment_authorized_for_contributor_execution": false,
+  "focused_tests": {
+    "command": "pytest -q tests/test_contributor_compute.py",
+    "result": "8 passed, 1 warning in 4.97s",
+    "warning": "PyTorch emitted an optional NumPy initialization warning because NumPy was not installed.",
+    "warning_disposition": "NON_FAILING_ENVIRONMENT_QUALIFICATION"
+  },
+  "fail_closed_observation": {
+    "initial_reference_run": "BLOCKED",
+    "reason": "Contributor execution requires a clean Git working tree",
+    "cause": "Untracked public-dissemination files were present in the work tree",
+    "disposition": "Expected behavior; files were temporarily stashed and restored after audit"
+  },
+  "reference_packet_run": {
+    "packet_id": "CHESSHEAT-CONTRIBUTOR-REFERENCE-V1",
+    "scientific_class": "REPLICATION_EXACT",
+    "scientific_admission_policy": "REFERENCE_ONLY_NO_SCIENTIFIC_ADMISSION",
+    "approved_science_sha": "b40f7b8f93f1f1fd0c0e6a39a8eae63c1f2458e6",
+    "packet_sha256": "27afcde57a98fbdc2a61df65b287b971ed36f0957600a99b72785e3132ea8182",
+    "repo_head_sha": "f00a212ba78274a43f6a2465df6e027be674afd2",
+    "max_workers": 2,
+    "accepted_work_units": [
+      "REF001",
+      "REF002"
+    ],
+    "work_unit_count": 2,
+    "run_verdict": "COMPLETE",
+    "bundle_verification_verdict": "PASS"
+  },
+  "merge_constraint": {
+    "requirement": "Preserve approved_science_sha ancestry on main",
+    "allowed_merge_strategy_for_pr_6": "merge commit",
+    "disallowed_for_this_packet_without_rebinding": [
+      "squash",
+      "rebase"
+    ],
+    "reason": "The contributor preflight requires approved_science_sha to be an ancestor of the execution HEAD."
+  },
+  "claim_ceiling": "This audit establishes the contributor-compute v1 plumbing on the tested local environment. It does not admit any chess-scientific result and does not authorize the blocked CP-only experiment for community execution.",
+  "next_state": "READY_FOR_ANCESTRY_PRESERVING_MERGE"
+}
