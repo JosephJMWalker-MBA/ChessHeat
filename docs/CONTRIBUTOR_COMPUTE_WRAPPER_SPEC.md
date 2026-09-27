@@ -13,7 +13,7 @@ The wrapper must remain outside the core measurement semantics and must not sile
 ### Preflight only
 
 ```bash
-python scripts/run_contributor_compute.py preflight \
+python3 scripts/run_contributor_compute.py preflight \
   --packet path/to/packet.json \
   --repo-root .
 ```
@@ -21,7 +21,7 @@ python scripts/run_contributor_compute.py preflight \
 If the packet requires an external engine:
 
 ```bash
-python scripts/run_contributor_compute.py preflight \
+python3 scripts/run_contributor_compute.py preflight \
   --packet path/to/packet.json \
   --repo-root . \
   --engine-path /path/to/stockfish
@@ -34,7 +34,7 @@ Preflight verifies identities and reports the environment but never executes wor
 The bundle must live outside the Git working tree.
 
 ```bash
-python scripts/run_contributor_compute.py run \
+python3 scripts/run_contributor_compute.py run \
   --packet path/to/packet.json \
   --repo-root . \
   --bundle ~/chessheat-runs/PACKET-ID \
@@ -48,7 +48,7 @@ Accepted work units are verified and reused. Missing units execute. A corrupted 
 ### Verify a completed bundle
 
 ```bash
-python scripts/run_contributor_compute.py verify \
+python3 scripts/run_contributor_compute.py verify \
   --bundle ~/chessheat-runs/PACKET-ID
 ```
 
