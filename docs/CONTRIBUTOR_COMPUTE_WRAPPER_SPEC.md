@@ -41,7 +41,7 @@ python scripts/run_contributor_compute.py run \
   --max-workers 4
 ```
 
-If interrupted, run the same command against the same bundle directory.
+If interrupted, run the same command against the same bundle directory. On POSIX systems the wrapper launches each job in its own process session and terminates that process group on timeout or keyboard interruption before preserving the attempt record.
 
 Accepted work units are verified and reused. Missing units execute. A corrupted accepted record fails closed.
 
@@ -61,6 +61,7 @@ Required top-level fields:
   "schema": "CHESSHEAT_CONTRIBUTOR_COMPUTE_PACKET_V1",
   "packet_id": "CHESSHEAT-COMPUTE-...",
   "scientific_class": "REPLICATION_EXACT",
+  "scientific_admission_policy": "CANDIDATE_REPLICATION_EVIDENCE",
   "status": "AUTHORIZED_FOR_CONTRIBUTOR_EXECUTION",
   "approved_science_sha": "40 lowercase hex characters",
   "bound_files": ["..."],
@@ -81,6 +82,15 @@ Allowed scientific classes:
 - `REPLICATION_EXACT`
 - `PROSPECTIVE_SHARD`
 - `COMPUTE_EXTENSION`
+
+Admission policy is explicit and separate from execution authorization. v1 recognizes:
+
+- `REFERENCE_ONLY_NO_SCIENTIFIC_ADMISSION`
+- `CANDIDATE_REPLICATION_EVIDENCE`
+- `CANDIDATE_PROSPECTIVE_SHARD`
+- `CANDIDATE_EXTENSION_EVIDENCE`
+
+The policy must be compatible with the packet's scientific class. In particular, the deterministic infrastructure reference packet is executable while remaining permanently ineligible for scientific admission.
 
 Only packets whose status is exactly:
 
@@ -119,10 +129,21 @@ Supported placeholders in argv:
 - `{repo_root}`
 - `{work_dir}`
 - `{engine_path}`
+- `{python_executable}`
 
 `{engine_path}` may only be used when an engine path is supplied.
 
 Required output paths are relative to the work-unit directory and may not escape it.
+
+When a deterministic reference or exact replication is expected to be byte-identical, a work unit may additionally declare:
+
+```json
+"expected_output_sha256": {
+  "result.json": "..."
+}
+```
+
+The wrapper then fails closed if the produced bytes differ.
 
 ## Bound scientific files
 
@@ -153,6 +174,8 @@ A packet controls:
 The wrapper refuses undeclared adaptive fields.
 
 Parallelism is therefore explicit rather than inferred from hardware.
+
+The wrapper also checks that the Git working tree remains clean and that every bound scientific file retains its preflight digest before and after accepted work. A work packet is expected to write all outputs into `{work_dir}`, not back into the repository.
 
 Future versions may add other execution-only knobs, but only after demonstrating that they do not alter the scientific object.
 
