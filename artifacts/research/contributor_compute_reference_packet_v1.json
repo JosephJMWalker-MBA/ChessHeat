@@ -1,0 +1,64 @@
+{
+  "schema": "CHESSHEAT_CONTRIBUTOR_COMPUTE_PACKET_V1",
+  "packet_id": "CHESSHEAT-CONTRIBUTOR-REFERENCE-V1",
+  "scientific_class": "REPLICATION_EXACT",
+  "scientific_admission_policy": "REFERENCE_ONLY_NO_SCIENTIFIC_ADMISSION",
+  "status": "AUTHORIZED_FOR_CONTRIBUTOR_EXECUTION",
+  "approved_science_sha": "a72822c7ff5825b2003b07686f89664d1b2ed176",
+  "bound_files": [
+    "src/chessheat/contributor_compute.py",
+    "scripts/run_contributor_reference_job.py"
+  ],
+  "scientific_parameters": {
+    "purpose": "DETERMINISTIC_INFRASTRUCTURE_REFERENCE_ONLY",
+    "chess_measurement": false,
+    "scientific_admission": "NONE"
+  },
+  "runtime_policy": {
+    "max_parallel_workers": 2,
+    "adaptive_fields": [
+      "max_workers"
+    ]
+  },
+  "engine": {
+    "required": false
+  },
+  "work_units": [
+    {
+      "work_unit_id": "REF001",
+      "argv": [
+        "{python_executable}",
+        "scripts/run_contributor_reference_job.py",
+        "--work-unit",
+        "REF001",
+        "--output",
+        "{work_dir}/result.json"
+      ],
+      "timeout_seconds": 60,
+      "required_outputs": [
+        "result.json"
+      ],
+      "expected_output_sha256": {
+        "result.json": "79d9e6386039b5ee9546bf94c6877e63548790a46b6fc6cc0672248230a54efd"
+      }
+    },
+    {
+      "work_unit_id": "REF002",
+      "argv": [
+        "{python_executable}",
+        "scripts/run_contributor_reference_job.py",
+        "--work-unit",
+        "REF002",
+        "--output",
+        "{work_dir}/result.json"
+      ],
+      "timeout_seconds": 60,
+      "required_outputs": [
+        "result.json"
+      ],
+      "expected_output_sha256": {
+        "result.json": "83d60c80239af748739111d52b632ddc1cb8d73fd7eb44c6637a936697accfca"
+      }
+    }
+  ]
+}
