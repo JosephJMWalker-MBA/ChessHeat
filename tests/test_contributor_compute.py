@@ -41,6 +41,7 @@ def _packet(approved_sha: str, *, status="AUTHORIZED_FOR_CONTRIBUTOR_EXECUTION")
         "schema": PACKET_SCHEMA,
         "packet_id": "CHESSHEAT-COMPUTE-TEST-001",
         "scientific_class": "REPLICATION_EXACT",
+        "scientific_admission_policy": "REFERENCE_ONLY_NO_SCIENTIFIC_ADMISSION",
         "status": status,
         "approved_science_sha": approved_sha,
         "bound_files": ["bound.txt"],
