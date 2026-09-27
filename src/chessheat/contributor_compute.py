@@ -14,11 +14,10 @@ import json
 import os
 import platform
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 
 PACKET_SCHEMA = "CHESSHEAT_CONTRIBUTOR_COMPUTE_PACKET_V1"
@@ -45,7 +44,7 @@ def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def sha256_file(path: os.PathLike[str] | str) -> str:
+def sha256_file(path: Union[os.PathLike, str]) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
@@ -71,7 +70,7 @@ def _run_git(repo_root: Path, args: List[str]) -> str:
         ) from exc
 
 
-def load_packet(path: os.PathLike[str] | str) -> Dict[str, Any]:
+def load_packet(path: Union[os.PathLike, str]) -> Dict[str, Any]:
     try:
         with open(path, "r", encoding="utf-8") as f:
             packet = json.load(f)
@@ -101,8 +100,14 @@ def validate_packet(packet: Dict[str, Any]) -> None:
     bound_files = packet.get("bound_files")
     if not isinstance(bound_files, list) or not bound_files:
         raise ContributorComputeError("bound_files must be a non-empty list")
+    if len(set(bound_files)) != len(bound_files):
+        raise ContributorComputeError("bound_files may not contain duplicates")
     for rel in bound_files:
         _validate_relative_path(rel, "bound file")
+
+    scientific_parameters = packet.get("scientific_parameters")
+    if not isinstance(scientific_parameters, dict):
+        raise ContributorComputeError("scientific_parameters must be an object")
 
     runtime = packet.get("runtime_policy")
     if not isinstance(runtime, dict):
@@ -162,7 +167,7 @@ def _validate_relative_path(value: Any, label: str) -> None:
         raise ContributorComputeError(f"{label} must be a safe relative path: {value}")
 
 
-def verify_repository(repo_root: os.PathLike[str] | str, packet: Dict[str, Any]) -> Dict[str, Any]:
+def verify_repository(repo_root: Union[os.PathLike, str], packet: Dict[str, Any]) -> Dict[str, Any]:
     repo = Path(repo_root).resolve()
     if not (repo / ".git").exists():
         # Worktrees may use a .git file, so accept any .git filesystem entry.
@@ -292,15 +297,15 @@ def environment_snapshot() -> Dict[str, Any]:
 
 
 def preflight(
-    packet_path: os.PathLike[str] | str,
-    repo_root: os.PathLike[str] | str,
+    packet_path: Union[os.PathLike, str],
+    repo_root: Union[os.PathLike, str],
     engine_path: Optional[str] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
     packet = load_packet(packet_path)
     repo_report = verify_repository(repo_root, packet)
     engine_report = verify_engine(packet, engine_path)
     environment = environment_snapshot()
-    packet_sha = sha256_file(packet_path)
+    packet_sha = sha256_bytes(canonical_json_bytes(packet))
 
     report = {
         "schema": "CHESSHEAT_CONTRIBUTOR_PREFLIGHT_V1",
@@ -342,7 +347,7 @@ def _atomic_write_json(path: Path, value: Any, *, exclusive: bool = False) -> No
     os.replace(tmp, path)
 
 
-def _safe_bundle_path(bundle_dir: os.PathLike[str] | str, repo_root: os.PathLike[str] | str) -> Path:
+def _safe_bundle_path(bundle_dir: Union[os.PathLike, str], repo_root: Union[os.PathLike, str]) -> Path:
     bundle = Path(bundle_dir).expanduser().resolve()
     repo = Path(repo_root).expanduser().resolve()
     try:
@@ -415,6 +420,27 @@ def verify_accepted_work_unit(work_dir: Path, unit: Dict[str, Any]) -> Dict[str,
         raise ContributorComputeError("Accepted work-unit schema mismatch")
     if accepted.get("work_unit_id") != unit["work_unit_id"]:
         raise ContributorComputeError("Accepted work-unit identity mismatch")
+    attempt_name = accepted.get("accepted_attempt")
+    if not isinstance(attempt_name, str) or not attempt_name.isdigit():
+        raise ContributorComputeError("Accepted attempt identity is invalid")
+    attempt_dir = work_dir / "attempts" / attempt_name
+    attempt_path = attempt_dir / "attempt.json"
+    if not attempt_path.is_file():
+        raise ContributorComputeError("Accepted attempt record is missing")
+    if accepted.get("accepted_attempt_sha256") != sha256_file(attempt_path):
+        raise ContributorComputeError("Accepted attempt record changed")
+    try:
+        attempt = json.loads(attempt_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ContributorComputeError("Accepted attempt record is corrupt") from exc
+    if attempt.get("work_unit_id") != unit["work_unit_id"] or attempt.get("exit_code") != 0:
+        raise ContributorComputeError("Accepted attempt semantics are invalid")
+    stdout_path = attempt_dir / "stdout.log"
+    stderr_path = attempt_dir / "stderr.log"
+    if attempt.get("stdout_sha256") != (sha256_file(stdout_path) if stdout_path.is_file() else None):
+        raise ContributorComputeError("Accepted stdout log changed")
+    if attempt.get("stderr_sha256") != (sha256_file(stderr_path) if stderr_path.is_file() else None):
+        raise ContributorComputeError("Accepted stderr log changed")
     current = _hash_required_outputs(work_dir, unit)
     if accepted.get("outputs") != current:
         raise ContributorComputeError(
@@ -510,6 +536,7 @@ def _execute_unit(
         "work_unit_id": wid,
         "argv": argv,
         "accepted_attempt": attempt_dir.name,
+        "accepted_attempt_sha256": sha256_file(attempt_dir / "attempt.json"),
         "outputs": outputs,
     }
     _atomic_write_json(accepted_path, accepted, exclusive=True)
@@ -566,9 +593,9 @@ def _build_bundle_index(bundle_dir: Path) -> Dict[str, Any]:
 
 
 def run_packet(
-    packet_path: os.PathLike[str] | str,
-    repo_root: os.PathLike[str] | str,
-    bundle_dir: os.PathLike[str] | str,
+    packet_path: Union[os.PathLike, str],
+    repo_root: Union[os.PathLike, str],
+    bundle_dir: Union[os.PathLike, str],
     *,
     engine_path: Optional[str] = None,
     max_workers: int = 1,
@@ -663,7 +690,7 @@ def run_packet(
     return manifest
 
 
-def verify_bundle(bundle_dir: os.PathLike[str] | str) -> Dict[str, Any]:
+def verify_bundle(bundle_dir: Union[os.PathLike, str]) -> Dict[str, Any]:
     bundle = Path(bundle_dir).expanduser().resolve()
     packet_path = bundle / "packet.json"
     manifest_path = bundle / "run_manifest.json"
@@ -677,8 +704,13 @@ def verify_bundle(bundle_dir: os.PathLike[str] | str) -> Dict[str, Any]:
         raise ContributorComputeError("Run manifest schema mismatch")
     if manifest.get("packet_id") != packet["packet_id"]:
         raise ContributorComputeError("Run manifest packet mismatch")
-    if manifest.get("packet_sha256") != sha256_file(packet_path):
+    if manifest.get("packet_sha256") != sha256_bytes(canonical_json_bytes(packet)):
         raise ContributorComputeError("Run manifest packet SHA mismatch")
+    expected_ids = sorted(unit["work_unit_id"] for unit in packet["work_units"])
+    if manifest.get("work_unit_count") != len(expected_ids):
+        raise ContributorComputeError("Run manifest work-unit count mismatch")
+    if manifest.get("accepted_work_units") != expected_ids:
+        raise ContributorComputeError("Run manifest accepted-work-unit set mismatch")
 
     for unit in packet["work_units"]:
         verify_accepted_work_unit(bundle / "work_units" / unit["work_unit_id"], unit)
