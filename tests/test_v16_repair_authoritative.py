@@ -42,6 +42,7 @@ def _make_fake_job_spec(condition="mu_D", budget=250, seed=1729, approved_sha="a
 
 def _make_fake_worker_result(spec: JobSpec) -> Dict:
     test_losses = {rid: 0.5 for rid in spec.test_root_ids}
+    eff_digest = hashlib.sha256(spec.nominal_root_population_digest.encode('utf-8')).hexdigest()
     return {
         "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V14",
         "condition": spec.condition,
@@ -50,13 +51,13 @@ def _make_fake_worker_result(spec: JobSpec) -> Dict:
         "nominal_root_count": spec.nominal_budget,
         "nominal_root_population_digest": spec.nominal_root_population_digest,
         "effective_training_root_count": spec.nominal_budget,
-        "effective_root_population_digest": spec.nominal_root_population_digest,
+        "effective_root_population_digest": eff_digest,
         "validation_population_digest": spec.validation_population_digest,
         "test_population_digest": spec.test_population_digest,
         "best_epoch": 5,
         "best_validation_root_nll": 0.45,
         "epochs_completed": 10,
-        "validation_trace": [0.6, 0.55, 0.5, 0.45, 0.46, 0.47],
+        "validation_trace": [0.60, 0.55, 0.50, 0.48, 0.45, 0.46, 0.47, 0.48, 0.49, 0.50],
         "test_evaluation_count": 1,
         "test_root_ids": tuple(spec.test_root_ids),
         "test_root_losses": test_losses,

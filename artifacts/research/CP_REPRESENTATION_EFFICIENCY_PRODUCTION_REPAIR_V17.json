@@ -1,0 +1,64 @@
+{
+  "schema": "CP_REPRESENTATION_EFFICIENCY_PRODUCTION_REPAIR_V17",
+  "preflight_v2_commit": "912845fd37f3f8ef6e4ca431f18bb3fc84f8a006",
+  "historical_v16_commit": "f7d76959fd59be80e7fd9c91f9f01489942da02a",
+  "actual_v2_correction_commit": "c81f99a5c03b5713700c6f59d081ae56fae0be56",
+  "v16_erroneous_provenance_commit_recorded": "c81f99a80b06b29cf1076fb41b71688dbeceb99a",
+  "repair_status": "DOWNSTREAM_PRODUCTION_EXECUTION_V17_IMPLEMENTED",
+  "real_training_count": 0,
+  "scientific_analysis_performed": false,
+  "authorization_gate_tests": {
+    "real_training_gate": "CHESSHEAT_REAL_TRAINING_AUTHORIZED=CHESSHEAT_REAL_TRAINING_V1_AUTHORIZED verified fail-closed",
+    "scientific_analysis_gate": "CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED=CHESSHEAT_SCIENTIFIC_ANALYSIS_V1_AUTHORIZED verified fail-closed"
+  },
+  "failure_class_resolutions": {
+    "V16_EVIDENCE_PROVENANCE_SHA_INCORRECT": {
+      "status": "RESOLVED_FORWARD",
+      "detail": "Historical V16 artifact preserved unedited; V17 evidence records verified pushed commit c81f99a5c03b5713700c6f59d081ae56fae0be56 as actual V2 correction commit."
+    },
+    "DURABLE_WORKER_RESULT_SEMANTIC_VALIDATION_INCOMPLETE": {
+      "status": "RESOLVED",
+      "detail": "Implemented validate_worker_result(spec, res) enforcing complete scientific invariants: test_root_losses exact key set and non-negative finite floats; effective_root_population_digest 64-char hex format and match when provided; effective_training_root_count within [0, nominal_budget]; canonical_model_state_sha 64-char hex format; validation_trace finite floats with length matching epochs_completed; best_epoch within [1, epochs_completed]; best_validation_root_nll exact match with min(validation_trace); and strict earliest-minimum tie breaking. Applied across worker return, parent callback, batch verification, and durable envelope validation.",
+      "hostile_tests_verified": [
+        "missing test_root_losses",
+        "incomplete test_root_losses",
+        "extra test_root_losses",
+        "negative test loss",
+        "wrong effective_root_population_digest",
+        "effective_training_root_count out of bounds",
+        "malformed canonical_model_state_sha",
+        "missing validation_trace",
+        "validation_trace length mismatch",
+        "best_epoch out of bounds",
+        "best_epoch violates earliest-minimum rule",
+        "tampered payloads with matching SHA"
+      ]
+    },
+    "NO_SILENT_OVERWRITE_NOT_ATOMICALLY_ENFORCED": {
+      "status": "RESOLVED",
+      "detail": "Replaced check-then-replace pattern in save_sealed_worker_result with atomic hard link os.link(temp_path, final_path). Temp file written to .tmp_{filename}_{pid}_{uuid}, flushed, and fsync'd before link. If destination exists, os.link atomically fails with FileExistsError, caught and translated to ValueError without TOCTOU vulnerability. Verified sequentially and with 10 concurrent threads."
+    },
+    "PRODUCTION_PARENT_RESUME_INTEGRATION_NOT_YET_DEMONSTRATED": {
+      "status": "RESOLVED",
+      "detail": "Demonstrated complete parent lifecycle in test_parent_interruption_restart_complete_manifest: run_training_parent crashed at 10 jobs, 10 durable seals persisted, fresh process restart identified and validated 10 seals, remaining 150 jobs executed, complete 160 manifest synthesized, subsequent restart executed 0 jobs, and tampered durable files caused fail-closed abort."
+    }
+  },
+  "implementation_files": [
+    "src/chessheat/cp_representation_efficiency.py",
+    "tests/test_cp_representation_efficiency.py",
+    "tests/test_v16_repair_authoritative.py",
+    "tests/test_v17_repair_authoritative.py"
+  ],
+  "hostile_test_suite": "tests/test_v17_repair_authoritative.py",
+  "test_suite_results": {
+    "v17_test_count": 15,
+    "v17_status": "15_PASSED",
+    "v16_test_count": 17,
+    "v16_status": "17_PASSED"
+  },
+  "execution_ceiling": {
+    "real_training": "0 / STRICTLY UNAUTHORIZED",
+    "scientific_analysis": "NOT PERFORMED / STRICTLY UNAUTHORIZED"
+  },
+  "next_blocker": "DOWNSTREAM_PRODUCTION_EXECUTION_V17_HOSTILE_REAUDIT_REQUIRED"
+}

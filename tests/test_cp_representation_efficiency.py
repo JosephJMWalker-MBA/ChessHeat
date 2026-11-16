@@ -640,15 +640,15 @@ def test_worker_binding():
         "test_population_digest": cp.canonical_root_population_digest(["t1"]),
         "nominal_root_count": 1,
         "effective_training_root_count": 1,
-        "effective_root_population_digest": "",
-        "best_epoch": 0,
-        "best_validation_root_nll": 0,
-        "epochs_completed": 0,
-        "validation_trace": [],
+        "effective_root_population_digest": "0" * 64,
+        "best_epoch": 1,
+        "best_validation_root_nll": 0.5,
+        "epochs_completed": 1,
+        "validation_trace": [0.5],
         "test_evaluation_count": 1,
         "test_root_ids": ("t1",),
-        "test_root_losses": {},
-        "canonical_model_state_sha": ""
+        "test_root_losses": {"t1": 0.5},
+        "canonical_model_state_sha": "0" * 64
     }
     
     def mock_rtj(*args, **kwargs):
@@ -720,10 +720,20 @@ def test_parent_completeness_with_fake_worker():
     valid_res = {
         "schema": "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V14",
         "condition": "C", "nominal_budget": 1, "seed": 1,
+        "nominal_root_count": 1,
+        "effective_training_root_count": 1,
+        "effective_root_population_digest": "0" * 64,
         "approved_implementation_sha": "a", "protocol_v7_sha": "b", "seal_v2_sha": "c",
         "label_scientific_sha": "d", "runtime_v3_identity": "e", "runtime_v3_pin_sha": "f",
         "nominal_root_population_digest": "nd", "validation_population_digest": "vd", "test_population_digest": "td",
-        "test_root_ids": ("t",)
+        "best_epoch": 1,
+        "best_validation_root_nll": 0.5,
+        "epochs_completed": 1,
+        "validation_trace": [0.5],
+        "test_evaluation_count": 1,
+        "test_root_ids": ("t",),
+        "test_root_losses": {"t": 0.5},
+        "canonical_model_state_sha": "0" * 64
     }
     
     # 1. positive check

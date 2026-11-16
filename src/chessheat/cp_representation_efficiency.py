@@ -5,7 +5,8 @@ import hashlib
 import re
 import copy
 import subprocess
-from typing import Dict, List, Any, Tuple, Optional
+import uuid
+from typing import Dict, List, Any, Tuple, Optional, Callable
 from dataclasses import dataclass
 from .protocol_freeze import (
     SourcePairFeatures, encode_position, encode_side_information,
@@ -789,6 +790,7 @@ class JobSpec:
     runtime_v3_pin_sha: str
     approved_implementation_sha: str
     cache_path: str
+    effective_root_population_digest: Optional[str] = None
 
 def build_job_specs(populations, ev_id, cache_path, approved_sha):
     specs = []
@@ -958,11 +960,15 @@ def run_downstream_worker(spec: JobSpec):
     result["runtime_v3_identity"] = spec.runtime_v3_identity
     result["runtime_v3_pin_sha"] = spec.runtime_v3_pin_sha
     
+    validate_worker_result(spec, result)
     return result
 
-def _validate_single_worker_result(spec: JobSpec, res: Dict):
+def validate_worker_result(spec: JobSpec, res: Dict) -> Dict:
+    if not isinstance(res, dict):
+        raise ValueError("Worker result must be a dict")
+        
     if res.get("schema") != "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_V14":
-        raise ValueError("Schema mismatch in parent validation")
+        raise ValueError("Schema mismatch in worker result")
         
     if res.get("condition") != spec.condition:
         raise ValueError("condition mismatch")
@@ -991,8 +997,82 @@ def _validate_single_worker_result(spec: JobSpec, res: Dict):
     if res.get("test_population_digest") != spec.test_population_digest:
         raise ValueError("test_population_digest mismatch")
         
+    # Nominal and effective root counts
+    if res.get("nominal_root_count") != spec.nominal_budget:
+        raise ValueError("nominal_root_count mismatch")
+        
+    eff_count = res.get("effective_training_root_count")
+    if not isinstance(eff_count, int) or isinstance(eff_count, bool) or not (0 <= eff_count <= spec.nominal_budget):
+        raise ValueError(f"effective_training_root_count bounds error: {eff_count}")
+        
+    # Effective root population digest
+    eff_digest = res.get("effective_root_population_digest")
+    if not isinstance(eff_digest, str) or len(eff_digest) != 64 or not all(c in "0123456789abcdefABCDEF" for c in eff_digest):
+        raise ValueError(f"effective_root_population_digest invalid: expected 64-char hex digest, got {eff_digest}")
+    expected_eff_digest = getattr(spec, "effective_root_population_digest", None)
+    if expected_eff_digest and eff_digest != expected_eff_digest:
+        raise ValueError(f"effective_root_population_digest mismatch: expected {expected_eff_digest}, got {eff_digest}")
+        
+    # Epochs and validation trace
+    epochs = res.get("epochs_completed")
+    if not isinstance(epochs, int) or isinstance(epochs, bool) or not (1 <= epochs <= 200):
+        raise ValueError(f"epochs_completed bounds error: {epochs}")
+        
+    val_trace = res.get("validation_trace")
+    if not isinstance(val_trace, list) or len(val_trace) != epochs:
+        raise ValueError(f"validation_trace length ({len(val_trace) if isinstance(val_trace, list) else None}) inconsistent with epochs_completed ({epochs})")
+    for idx, v in enumerate(val_trace):
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v) or v < 0.0:
+            raise ValueError(f"validation_trace[{idx}] non-finite or negative: {v}")
+            
+    # Best epoch and best validation NLL (earliest-minimum rule)
+    best_epoch = res.get("best_epoch")
+    if not isinstance(best_epoch, int) or isinstance(best_epoch, bool) or not (1 <= best_epoch <= epochs):
+        raise ValueError(f"best_epoch bounds error: {best_epoch} not in [1, {epochs}]")
+        
+    best_val_nll = res.get("best_validation_root_nll")
+    if not isinstance(best_val_nll, (int, float)) or isinstance(best_val_nll, bool) or not math.isfinite(best_val_nll) or best_val_nll < 0.0:
+        raise ValueError(f"best_validation_root_nll non-finite or negative: {best_val_nll}")
+        
+    min_trace_val = min(val_trace)
+    if abs(best_val_nll - min_trace_val) > 1e-9:
+        raise ValueError(f"best_validation_root_nll {best_val_nll} != min(validation_trace) {min_trace_val}")
+        
+    earliest_min_epoch = val_trace.index(min_trace_val) + 1
+    if best_epoch != earliest_min_epoch:
+        raise ValueError(f"best_epoch {best_epoch} does not match earliest-minimum epoch {earliest_min_epoch}")
+        
+    # Canonical model state digest
+    model_sha = res.get("canonical_model_state_sha")
+    if not isinstance(model_sha, str) or len(model_sha) != 64 or not all(c in "0123456789abcdefABCDEF" for c in model_sha):
+        raise ValueError(f"canonical_model_state_sha invalid: expected 64-char hex digest, got {model_sha}")
+        
+    # Test evaluation and test losses
+    if res.get("test_evaluation_count") != 1:
+        raise ValueError(f"test_evaluation_count != 1: {res.get('test_evaluation_count')}")
+        
     if tuple(res.get("test_root_ids", ())) != tuple(spec.test_root_ids):
-        raise ValueError("test_root_ids mismatch in parent")
+        raise ValueError("test_root_ids mismatch in worker result")
+        
+    test_losses = res.get("test_root_losses")
+    if not isinstance(test_losses, dict):
+        raise ValueError("test_root_losses must be a dict")
+        
+    expected_test_rids = set(spec.test_root_ids)
+    actual_test_rids = set(test_losses.keys())
+    if actual_test_rids != expected_test_rids or len(test_losses) != len(spec.test_root_ids):
+        missing = expected_test_rids - actual_test_rids
+        extra = actual_test_rids - expected_test_rids
+        raise ValueError(f"test_root_losses keys do not exactly match test_root_ids: missing {missing}, extra {extra}")
+        
+    for rid, loss in test_losses.items():
+        if not isinstance(loss, (int, float)) or isinstance(loss, bool) or not math.isfinite(loss) or loss < 0.0:
+            raise ValueError(f"test_root_losses[{rid}] non-finite or negative: {loss}")
+            
+    return res
+
+def _validate_single_worker_result(spec: JobSpec, res: Dict):
+    return validate_worker_result(spec, res)
 
 def validate_completed_worker_results(job_specs: List[JobSpec], results: List[Dict]):
     if len(results) != len(job_specs):
@@ -1007,7 +1087,7 @@ def validate_completed_worker_results(job_specs: List[JobSpec], results: List[Di
     
     for spec in job_specs:
         res = res_dict[(spec.condition, spec.nominal_budget, spec.seed)]
-        _validate_single_worker_result(spec, res)
+        validate_worker_result(spec, res)
         
     return "PASS"
 
@@ -1044,19 +1124,26 @@ def save_sealed_worker_result(result_dir: str, spec: JobSpec, envelope: Dict) ->
     filename = f"worker_result_{spec.condition}_b{spec.nominal_budget}_s{spec.seed}.json"
     final_path = os.path.join(result_dir, filename)
     
-    if os.path.exists(final_path):
-        raise ValueError(f"Refusing to overwrite existing result file: {final_path}")
-        
-    temp_path = os.path.join(result_dir, f".tmp_{filename}_{os.getpid()}")
+    temp_path = os.path.join(result_dir, f".tmp_{filename}_{os.getpid()}_{uuid.uuid4().hex}")
     content = json.dumps(envelope, sort_keys=True, separators=(',', ':'), allow_nan=False)
     
-    with open(temp_path, "w", encoding="utf-8") as f:
-        f.write(content)
-        f.flush()
-        os.fsync(f.fileno())
-        
-    os.replace(temp_path, final_path)
-    
+    try:
+        with open(temp_path, "w", encoding="utf-8") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+            
+        try:
+            os.link(temp_path, final_path)
+        except FileExistsError:
+            raise ValueError(f"Refusing to overwrite existing result file: {final_path}")
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+                
     try:
         dir_fd = os.open(result_dir, os.O_RDONLY)
         try:
@@ -1109,16 +1196,8 @@ def validate_sealed_worker_result(envelope: Dict, spec: JobSpec) -> Dict:
     if calculated_sha != envelope.get("payload_sha256"):
         raise ValueError("Envelope payload SHA256 mismatch")
         
-    _validate_single_worker_result(spec, payload)
-    
-    if payload.get("nominal_root_count") != spec.nominal_budget:
-        raise ValueError("Payload nominal_root_count mismatch")
-    if not (0 <= payload.get("effective_training_root_count", -1) <= payload.get("nominal_root_count")):
-        raise ValueError("Payload effective_training_root_count bounds error")
-    if payload.get("test_evaluation_count") != 1:
-        raise ValueError("Payload test_evaluation_count != 1")
-    if tuple(payload.get("test_root_ids", ())) != tuple(spec.test_root_ids):
-        raise ValueError("Payload test_root_ids mismatch")
+    # Enforce identical semantic validation on durable payloads
+    validate_worker_result(spec, payload)
         
     return payload
 
@@ -1169,7 +1248,8 @@ def run_training_parent(
     cache_path: str,
     cache_sha: str,
     repo_root: str = ".",
-    result_dir: str = "artifacts/research/cp_representation_efficiency_training_v1/worker_results"
+    result_dir: str = "artifacts/research/cp_representation_efficiency_training_v1/worker_results",
+    worker_fn: Optional[Callable[[JobSpec], Dict]] = None
 ):
     verify_approved_sha_gate(approved_sha, repo_root)
     check_real_training_authorization()
@@ -1194,12 +1274,13 @@ def run_training_parent(
     completed_results = dict(existing_results)
     
     if missing_specs:
+        target_worker = worker_fn if worker_fn is not None else run_downstream_worker
         def on_success(spec: JobSpec, res: Dict):
-            _validate_single_worker_result(spec, res)
+            validate_worker_result(spec, res)
             envelope = make_sealed_worker_result(spec, res)
             save_sealed_worker_result(result_dir, spec, envelope)
             
-        new_results = run_job_specs(missing_specs, run_downstream_worker, on_result_success=on_success)
+        new_results = run_job_specs(missing_specs, target_worker, on_result_success=on_success)
         for res in new_results:
             tuple_key = (res["condition"], res["nominal_budget"], res["seed"])
             completed_results[tuple_key] = res
