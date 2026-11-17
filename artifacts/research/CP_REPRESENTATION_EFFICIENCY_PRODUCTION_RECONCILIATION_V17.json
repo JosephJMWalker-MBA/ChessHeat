@@ -1,0 +1,103 @@
+{
+  "schema": "CP_REPRESENTATION_EFFICIENCY_PRODUCTION_RECONCILIATION_V17",
+  "reconciliation_branch": "downstream-production-repair-v17",
+  "audited_implementation_commit": "c372e34968b5e3b48de9744734aec94f400d238b",
+  "preflight_v2_commit": "912845fd37f3f8ef6e4ca431f18bb3fc84f8a006",
+  "actual_v2_correction_commit": "c81f99a5c03b5713700c6f59d081ae56fae0be56",
+  "historical_v16_erroneous_provenance_commit": "c81f99a80b06b29cf1076fb41b71688dbeceb99a",
+  "execution_receipt": {
+    "receipt_timestamp": "2026-11-17T00:46:52Z",
+    "command": "PYTHONPATH=. CHESSHEAT_REPO_ROOT=$(pwd) .venv/bin/pytest -q",
+    "total_tests": 356,
+    "passed": 356,
+    "failed": 0,
+    "warnings": 1,
+    "duration_seconds": 186.45,
+    "independence_confirmation": "Executed independently on clean working tree at commit c372e34; confirms zero regressions across entire repository test suite."
+  },
+  "hostile_mutation_adjudication_reconciliation": {
+    "total_cases_evaluated": 15,
+    "negative_invalid_cases_blocked": 14,
+    "positive_boundary_control_cases_passed": 1,
+    "case_inventory": [
+      "test_root_losses with float string value -> BLOCKED",
+      "test_root_losses with None -> BLOCKED",
+      "test_root_losses with bool True -> BLOCKED",
+      "test_root_losses with bool False -> BLOCKED",
+      "validation_trace with bool True -> BLOCKED",
+      "best_epoch as bool True -> BLOCKED",
+      "effective_training_root_count as bool True -> BLOCKED",
+      "test_evaluation_count 2 -> BLOCKED",
+      "test_evaluation_count 0 -> BLOCKED",
+      "test_root_ids order swapped -> BLOCKED",
+      "epochs_completed 0 -> BLOCKED",
+      "epochs_completed 201 -> BLOCKED",
+      "canonical_model_state_sha invalid char g -> BLOCKED",
+      "effective_root_population_digest invalid char g -> BLOCKED",
+      "canonical_model_state_sha uppercase hex valid -> PASSED (valid hex boundary control)"
+    ],
+    "reconciliation_finding": "The 15 evaluated hostile test cases comprise 1 positive boundary control (testing uppercase hex format acceptance) and 14 invalid negative malformations. All 14 negative malformations were strictly blocked by both validate_worker_result and validate_sealed_worker_result."
+  },
+  "float_tolerance_justification": {
+    "tolerance": 1e-9,
+    "machine_epsilon_float64": 2.220446049250313e-16,
+    "justification": "1e-9 provides sufficient margin against decimal string formatting and roundtrip delta in JSON serialization/deserialization across platforms while being 5 to 6 orders of magnitude tighter than plausible NLL loss variations across epochs (10^-2 to 10^-5). The earliest-minimum tie-breaker uses exact list.index(min(validation_trace)) without tolerance degradation.",
+    "satisfies_frozen_scientific_requirements": true
+  },
+  "watchdog_boundedness_assessment": {
+    "watchdog_timeout_seconds": 7200.0,
+    "incomplete_manifest_prevention": "GUARANTEED_FAIL_CLOSED",
+    "process_termination_bounds": "THEORETICAL_LIMITATION_DOCUMENTED",
+    "finding": "Watchdog expiration terminates the worker process with p.terminate() (SIGTERM) and raises RuntimeError, guaranteeing that the parent halts before manifest synthesis. While standard PyTorch workers exit immediately on SIGTERM, p.join() without a secondary timeout does not enforce a bounded kill deadline if a worker process were to ignore SIGTERM."
+  },
+  "production_environment": {
+    "operating_system": "macOS Darwin (arm64)",
+    "python_version": "3.13.5",
+    "ml_runtime_identity": "CHESSHEAT_ML_RUNTIME_V3",
+    "runtime_pin_sha": "e69ae6bcbf96a327b021665b5ac21b63c269cd821be84d567867058b09e98932",
+    "pytorch_version": "2.13.0",
+    "accelerator": "MPS",
+    "available_disk_storage_gib": 40.0,
+    "expected_experiment_storage_gib": 0.07,
+    "storage_headroom_ratio": ">500x"
+  },
+  "production_execution_specification": {
+    "approved_implementation_sha": "c372e34968b5e3b48de9744734aec94f400d238b",
+    "frozen_protocol_id": "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7",
+    "frozen_protocol_sha": "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef",
+    "seal_v2_sha": "2e4735f40124f4eb7017ff816a4ea55e9f72ac559236a6077a0104273b1ab9c4",
+    "canonical_label_scientific_sha": "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2",
+    "canonical_cache_path": "artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v6.jsonl",
+    "output_dir": "artifacts/research/cp_representation_efficiency_training_v1/",
+    "worker_results_dir": "artifacts/research/cp_representation_efficiency_training_v1/worker_results/",
+    "manifest_path": "artifacts/research/cp_representation_efficiency_training_v1/cp_downstream_manifest_v1.json",
+    "production_command": "CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA=c372e34968b5e3b48de9744734aec94f400d238b CHESSHEAT_REAL_TRAINING_AUTHORIZED=CHESSHEAT_REAL_TRAINING_V1_AUTHORIZED PYTHONPATH=. CHESSHEAT_REPO_ROOT=$(pwd) .venv/bin/python scripts/run_cp_representation_efficiency.py --mode train --cache artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v6.jsonl --cache-sha c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2"
+  },
+  "operational_monitoring_contract": {
+    "monitored_attributes": [
+      "job_identity",
+      "completion_count",
+      "runtime_seconds",
+      "mps_resident_memory",
+      "error_log",
+      "manifest_sha"
+    ],
+    "strictly_prohibited_inspection": [
+      "scientific_outcomes",
+      "validation_nll_interpretation",
+      "test_loss_interpretation",
+      "condition_comparisons",
+      "scalar_heat_inferences"
+    ]
+  },
+  "resumption_and_recovery": {
+    "resumption_behavior": "Parent checks worker_results/ on startup, validates all completed sealed envelopes against frozen specifications, calculates missing specs, and computes only remaining jobs.",
+    "fail_closed_recovery": "Any corrupted, partial (.tmp_*), or tampered file causes immediate startup failure. Recovery requires removing corrupt artifact or resuming clean state."
+  },
+  "reconciliation_verdict": "RECONCILIATION_PASS",
+  "next_permitted_state": "READY_FOR_EXPLICIT_PRODUCTION_AUTHORIZATION",
+  "execution_ceiling": {
+    "real_training": "0 / STRICTLY UNAUTHORIZED",
+    "scientific_analysis": "NOT PERFORMED / STRICTLY UNAUTHORIZED"
+  }
+}
