@@ -1,0 +1,261 @@
+{
+  "schema": "CP_AUTHORITATIVE_V6_RECONSTRUCTION_ADMISSION_V1",
+  "assessment_timestamp_utc": "2026-11-17T01:56:00Z",
+  "repository": "JosephJMWalker-MBA/ChessHeat",
+  "branch": "downstream-production-repair-v17",
+  "head_commit": "3e1d88158d41a66d58b26fd35b62497af28f80f2",
+  "governance": {
+    "chessheat_real_training_authorized": 0,
+    "chessheat_scientific_analysis_authorized": "NOT_PERFORMED",
+    "engine_execution_authorized": 0,
+    "governing_invariant": "The mathematics needs to earn the color."
+  },
+  "research_dependency_graph": {
+    "1_root_population_manifest": {
+      "path": "artifacts/research/cp_source_feasibility_2026_07/cp_root_population_manifest_v2.jsonl.zst",
+      "meta_path": "artifacts/research/cp_source_feasibility_2026_07/cp_root_population_manifest_v2.meta.json",
+      "compressed_sha256": "a4fd60e0fe3a54bd91435a7f2653cc3b7a4091710581d104a2efe302def402b7",
+      "decompressed_sha256": "5a013e64265820b65d1d3687fcee98aa607ab41470294d11df7b2f803c8e063d",
+      "compressed_bytes": 11924265,
+      "total_records": 40038,
+      "admitted_roots": 33859,
+      "producing_script": "scripts/build_cp_july2026_root_manifest.py",
+      "historical_commit": "a49b6ce62a59cc056b67aefc94b121799d950045",
+      "current_availability": "PRESENT",
+      "deterministic_reconstruction_supported": true
+    },
+    "2_source_raw_engine_results": {
+      "path": "artifacts/research/cp_source_feasibility_2026_07/raw/cp_source_root_results_v2.jsonl",
+      "expected_sha256": "7eb640c572dad4c6607cfb1b5ccf99597672042e5c516f131feab02223ccfa6b",
+      "expected_bytes": 764529894,
+      "total_records": 33859,
+      "total_child_observations": 1067664,
+      "cp_observations": 1037581,
+      "mate_observations": 30083,
+      "producing_script": "scripts/run_cp_source_feasibility.py",
+      "runner_class": "chessheat.cp_source_feasibility.SourceFeasibilityRunnerV2",
+      "historical_commit": "a49b6ce62a59cc056b67aefc94b121799d950045",
+      "engine_budget": "Stockfish 18, 50000 nodes/child, Threads=1, Hash=16, fresh game token per child",
+      "current_availability": "MISSING",
+      "required_reconstruction_inputs": [
+        "artifacts/research/cp_source_feasibility_2026_07/cp_root_population_manifest_v2.jsonl.zst",
+        "artifacts/research/cp_source_feasibility_2026_07/cp_root_population_manifest_v2.meta.json",
+        "Stockfish 18 binary (ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374)"
+      ],
+      "deterministic_reconstruction_supported": "THEORETICALLY_SUPPORTED_EMPIRICALLY_UNVERIFIED",
+      "notes": "Single-threaded isolated configuration is structurally deterministic. However, unlike TARGET raw, no historical re-acquisition receipt exists demonstrating bit-identical reproduction across all 33,859 roots."
+    },
+    "3_target_raw_engine_results": {
+      "path": "artifacts/research/cp_target_acquisition_2026_07/raw/cp_target_root_results_v2.jsonl",
+      "expected_sha256": "d9b290bd44902559fd98f3b9c17b35b586ff72425cb2783b42cf76e200e81b00",
+      "expected_bytes": 770029516,
+      "total_records": 33859,
+      "total_child_observations": 1067664,
+      "cp_observations": 1030419,
+      "mate_observations": 37245,
+      "producing_script": "scripts/run_cp_target_acquisition.py",
+      "runner_class": "chessheat.cp_target_acquisition.TargetAcquisitionRunnerV2",
+      "historical_commit": "1c8fbb778a7bffb76d149fa1ea00aa3f8c054ce8",
+      "engine_budget": "Stockfish 18, 250000 nodes/child, Threads=1, Hash=16, fresh game token per child",
+      "current_availability": "MISSING",
+      "required_reconstruction_inputs": [
+        "artifacts/research/cp_source_feasibility_2026_07/cp_root_population_manifest_v2.jsonl.zst",
+        "artifacts/research/cp_source_feasibility_2026_07/cp_root_population_manifest_v2.meta.json",
+        "Stockfish 18 binary (ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374)"
+      ],
+      "deterministic_reconstruction_supported": "EMPIRICALLY_VERIFIED",
+      "notes": "Verified bit-identical in September 2026 Attempt 2 (commit 7dc937f), reproducing exactly d9b290bd... across 33,859 roots and 1,067,664 observations."
+    },
+    "4_target_acquisition_seal_v2": {
+      "path": "artifacts/research/cp_target_acquisition_2026_07/cp_target_acquisition_seal_v2.json",
+      "expected_sha256": "1f17ac7e27531d27bc050d49a8a1e60aa5e0ab53c26f28b2540f868c27a43dad",
+      "current_availability": "PRESENT",
+      "deterministic_reconstruction_supported": true
+    },
+    "5_v6_target_label_derivation": {
+      "compressed_path": "artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v6.jsonl.zst",
+      "expected_compressed_sha256": "dea9346f9cb125f9c35e8824bb937daf4ea7fc51cff7f6c7c437caac8ae2c92d",
+      "expected_compressed_bytes": 913691406,
+      "uncompressed_path": "artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v6.jsonl",
+      "expected_uncompressed_sha256": "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2",
+      "expected_uncompressed_bytes": 3933405259,
+      "total_roots": 33859,
+      "pair_eligible_roots": 33444,
+      "zero_pair_roots": 415,
+      "source_pairs": 17788903,
+      "producing_script": "scripts/run_cp_target_label_derivation.py",
+      "materializer_class": "chessheat.cp_target_labels.TargetLabelMaterializerV6",
+      "historical_commit": "14b85055fd439cf7f905adf51718544485b1ac17",
+      "current_availability": "MISSING",
+      "required_reconstruction_inputs": [
+        "artifacts/research/cp_source_feasibility_2026_07/raw/cp_source_root_results_v2.jsonl (7eb640c5...)",
+        "artifacts/research/cp_target_acquisition_2026_07/raw/cp_target_root_results_v2.jsonl (d9b290bd...)",
+        "artifacts/research/cp_target_acquisition_2026_07/cp_target_acquisition_seal_v2.json (1f17ac7e...)",
+        "artifacts/research/cp_source_feasibility_2026_07/cp_root_population_manifest_v2.jsonl.zst (5a013e64...)",
+        "artifacts/research/cp_representation_efficiency_protocol_v7.json (ea1242de...)"
+      ],
+      "deterministic_reconstruction_supported": "FULLY_DETERMINISTIC_GIVEN_CANONICAL_INPUTS"
+    },
+    "6_target_label_seal_v2": {
+      "path": "artifacts/research/cp_target_labels_2026_07/cp_target_label_derivation_seal_v2.json",
+      "expected_sha256": "2e4735f40124f4eb7017ff816a4ea55e9f72ac559236a6077a0104273b1ab9c4",
+      "current_availability": "PRESENT",
+      "deterministic_reconstruction_supported": true
+    },
+    "7_frozen_protocol_v7_and_ml_runtime_v3": {
+      "protocol_path": "artifacts/research/cp_representation_efficiency_protocol_v7.json",
+      "protocol_sha256": "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef",
+      "ml_runtime_pin": "artifacts/research/ml_runtime_pin_v3.json",
+      "ml_package_lock": "artifacts/research/ml_runtime_package_lock_v3.json",
+      "ml_code_lock": "artifacts/research/ml_runtime_code_lock_v3.json",
+      "ml_requirements": "requirements/ml-runtime-v3.txt",
+      "current_availability": "PRESENT",
+      "deterministic_reconstruction_supported": true
+    },
+    "8_v17_downstream_production_runner": {
+      "implementation_commit": "c372e34968b5e3b48de9744734aec94f400d238b",
+      "reconciliation_commit": "3e1d88158d41a66d58b26fd35b62497af28f80f2",
+      "module": "src/chessheat/cp_representation_efficiency.py",
+      "current_availability": "PRESENT_AND_AUDITED",
+      "status": "READY_PENDING_V6_CANONICAL_CACHE"
+    }
+  },
+  "artifact_availability_summary": {
+    "manifest_and_metadata": "PRESENT",
+    "source_feasibility_raw": "MISSING (0 bytes / directory absent)",
+    "target_acquisition_raw": "MISSING (directory absent)",
+    "target_acquisition_seal_v2": "PRESENT",
+    "target_label_derivation_seal_v2": "PRESENT",
+    "v6_compressed_labels": "MISSING",
+    "v6_decompressed_cache": "MISSING",
+    "protocol_v7_and_runtime_locks": "PRESENT",
+    "v17_production_runner_code": "PRESENT"
+  },
+  "engine_reproducibility_assessment": {
+    "binary_identity": {
+      "resolved_path": "/opt/homebrew/bin/stockfish",
+      "expected_sha256": "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374",
+      "actual_sha256": "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374",
+      "status": "EXACT_MATCH"
+    },
+    "build_configuration": {
+      "compiler": "Apple LLVM 17.0.0 (clang-1700.6.3.2)",
+      "compilation_architecture": "apple-silicon",
+      "compilation_settings": "64bit NEON_DOTPROD POPCNT"
+    },
+    "embedded_nnue_networks": {
+      "EvalFile": "nn-c288c895ea92.nnue",
+      "EvalFileSmall": "nn-37f18f62d772.nnue",
+      "network_policy": "BINARY_DEFAULT_NNUE (no external tablebases or networks)"
+    },
+    "uci_options_surface": {
+      "Threads": 1,
+      "Hash": 16,
+      "Skill_Level": 20,
+      "UCI_LimitStrength": false,
+      "UCI_ShowWDL": false,
+      "UCI_Chess960": false,
+      "Ponder": false,
+      "MultiPV": 1,
+      "SyzygyProbeLimit": 0,
+      "SyzygyPath": "<empty>",
+      "expected_surface_sha256": "81343ad95cf7da2498c4974b064ea74f97ba44815dfe4cc1705cb1a7e2cbff4a",
+      "actual_surface_sha256": "81343ad95cf7da2498c4974b064ea74f97ba44815dfe4cc1705cb1a7e2cbff4a",
+      "status": "EXACT_MATCH"
+    },
+    "search_determinism_mechanisms": {
+      "single_threaded": "Threads=1 eliminates Lazy SMP thread races, search splitting jitter, and non-deterministic TT access races.",
+      "node_budget_stopping": "Search terminates strictly upon consuming the exact node limit (50,000 for SOURCE, 250,000 for TARGET); time and depth limits are unbound.",
+      "per_child_tt_isolation": "python-chess receives a fresh game token object per child move, issuing ucinewgame before each analysis. This clears Stockfish transposition tables and search history heuristics, preventing cross-move state contamination.",
+      "lexicographical_order": "Legal moves are ordered strictly by UCI string (e.g. a2a3, a2a4, ...) ensuring invariant evaluation sequence."
+    },
+    "empirical_evidence": {
+      "target_raw_determinism": "PROVEN: September 2026 Attempt 2 reproduced 33,859 records and 770,029,516 bytes matching SHA-256 d9b290bd... bit-for-bit.",
+      "source_raw_determinism": "UNPROVEN: No full re-acquisition of SOURCE raw was recorded in repository history. While the execution parameters are structurally deterministic, byte-for-byte reproducibility of 7eb640c5... remains an unverified hypothesis."
+    }
+  },
+  "computational_feasibility": {
+    "workload_dimensions": {
+      "admitted_roots": 33859,
+      "total_child_evaluations": 1067664,
+      "source_nodes": 53383200000,
+      "target_nodes": 266916000000,
+      "total_nodes": 320299200000
+    },
+    "surviving_partial_results": "0 surviving records (fresh clone)",
+    "historical_duration": {
+      "source_acquisition_historical_hours": "15-20 hours (measured July 2026)",
+      "target_acquisition_historical_hours": "72-96 hours (measured August 2026 and September 2026 Attempt 2)",
+      "label_derivation_historical_minutes": "2 minutes 2 seconds (measured September 2, 2026)"
+    },
+    "projected_duration_current_hardware": {
+      "hardware_model": "Mac16,10 (Apple M4, 10 physical cores, 16 GB RAM)",
+      "hardware_match": "Identical hardware model to September 2026 Attempt 2",
+      "projected_source_acquisition": "15 to 20 hours (1 CPU core, 100%)",
+      "projected_target_acquisition": "72 to 96 hours (1 CPU core, 100%)",
+      "projected_label_derivation": "2 minutes (1 CPU core, 100%)",
+      "total_estimated_duration": "87 to 116 hours (~3.6 to 4.8 calendar days)"
+    },
+    "resource_footprint": {
+      "peak_memory_mb": 650,
+      "peak_storage_gb": 6.4,
+      "internal_disk_free_gb": 39.0,
+      "external_disk_free_gb": 1500.0,
+      "thermal_and_concurrency": "Single-core load on a 10-core M4 generates minimal thermal output and allows normal interactive use without degradation."
+    },
+    "interruption_and_resumption": {
+      "durability_mechanism": "Append-only JSON Lines with immediate f_out.flush() and os.fsync(f_out.fileno()) per completed root.",
+      "resumption_logic": "On restart, runner reads output file sequentially, validates prior records against manifest, populates completed_roots, and resumes at first uncompleted root in exact manifest sequence."
+    }
+  },
+  "staged_execution_and_preservation_plan": {
+    "stage_0_calibration_probe": {
+      "description": "Execute a 5-root test probe in an isolated scratch directory to verify that SourceFeasibilityRunnerV2 and TargetAcquisitionRunnerV2 initialize cleanly and emit identical records to historical test logs without side effects.",
+      "scope": "Scratch directory only; 0 production impact"
+    },
+    "stage_1_source_acquisition": {
+      "description": "Reacquire missing SOURCE raw results under frozen SourceFeasibilityRunnerV2.",
+      "command": "PYTHONPATH=src:. CHESSHEAT_STOCKFISH18=/opt/homebrew/bin/stockfish .venv/bin/python3 scripts/run_cp_source_feasibility.py",
+      "target_path": "artifacts/research/cp_source_feasibility_2026_07/raw/cp_source_root_results_v2.jsonl",
+      "expected_sha256": "7eb640c572dad4c6607cfb1b5ccf99597672042e5c516f131feab02223ccfa6b",
+      "expected_bytes": 764529894,
+      "validation_gate": "Strict equality of SHA-256 and byte size. If mismatch, STOP IMMEDIATELY. Do not proceed to TARGET acquisition."
+    },
+    "stage_2_target_acquisition": {
+      "description": "Reacquire missing TARGET raw results under frozen TargetAcquisitionRunnerV2.",
+      "command": "PYTHONPATH=src:. CHESSHEAT_STOCKFISH18=/opt/homebrew/bin/stockfish CHESSHEAT_TARGET_ACQUISITION_APPROVED_SHA=1c8fbb778a7bffb76d149fa1ea00aa3f8c054ce8 .venv/bin/python3 scripts/run_cp_target_acquisition.py",
+      "target_path": "artifacts/research/cp_target_acquisition_2026_07/raw/cp_target_root_results_v2.jsonl",
+      "expected_sha256": "d9b290bd44902559fd98f3b9c17b35b586ff72425cb2783b42cf76e200e81b00",
+      "expected_bytes": 770029516,
+      "validation_gate": "Strict equality of SHA-256 and byte size against seal V2. If mismatch, STOP IMMEDIATELY."
+    },
+    "stage_3_v6_target_label_derivation": {
+      "description": "Materialize canonical V6 pair labels from verified SOURCE and TARGET raw artifacts.",
+      "command": "PYTHONPATH=src:. CHESSHEAT_TARGET_LABEL_DERIVATION_APPROVED_SHA=14b85055fd439cf7f905adf51718544485b1ac17 .venv/bin/python3 -u scripts/run_cp_target_label_derivation.py",
+      "output_compressed": "artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v6.jsonl.zst",
+      "expected_compressed_sha256": "dea9346f9cb125f9c35e8824bb937daf4ea7fc51cff7f6c7c437caac8ae2c92d",
+      "expected_compressed_bytes": 913691406,
+      "decompression_step": "zstd -d artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v6.jsonl.zst -o artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v6.jsonl",
+      "expected_decompressed_sha256": "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2",
+      "expected_decompressed_bytes": 3933405259,
+      "validation_gate": "Verify decompressed SHA-256 and byte size against seal V2."
+    },
+    "stage_4_durable_preservation": {
+      "description": "Establish 3-layer preservation before downstream production training.",
+      "layers": {
+        "layer_1_methodology": "Git version-controlled protocol, runners, tests, and seals in repository.",
+        "layer_2_repository_evidence": "Canonical uncompressed execution cache and compressed transport artifact in artifacts/research/cp_target_labels_2026_07/.",
+        "layer_3_external_independent_backup": "Full replica of verified artifacts (SOURCE raw, TARGET raw, V6 compressed, V6 uncompressed) written to /Volumes/EXHD/ChessHeat_Preserved_Evidence/ with cryptographic receipts."
+      }
+    },
+    "stage_5_production_admission_reentry": {
+      "description": "Re-run non-training preflight admission checks under V17 infrastructure; verify all 8 checks pass; await explicit user authorization for real production training."
+    }
+  },
+  "concrete_blockers": {
+    "engine_execution_unauthorized": "Engine execution is strictly unauthorized under AGENTS.md and current session boundaries without explicit human authorization.",
+    "source_determinism_unverified": "SOURCE raw determinism has not yet been demonstrated in an empirical re-acquisition run. If SOURCE raw diverges by even a single byte, live derivation will fail closed."
+  },
+  "verdict": "RECONSTRUCTION_DETERMINISM_UNVERIFIED",
+  "verdict_rationale": "All prerequisites, tools, environments, hardware, configurations, and scripts are verified and present. TARGET raw reproducibility is empirically verified by historical Attempt 2. However, because SOURCE raw re-acquisition has never been empirically verified in the repository history, exact end-to-end bit reproducibility cannot be claimed as verified prior to execution. The staged execution plan is prepared and bounded by fail-closed validation gates, pending explicit human authorization to begin."
+}
