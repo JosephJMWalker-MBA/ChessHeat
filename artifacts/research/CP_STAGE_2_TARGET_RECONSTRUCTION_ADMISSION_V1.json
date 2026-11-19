@@ -1,0 +1,52 @@
+{
+  "schema": "CP_STAGE_2_TARGET_RECONSTRUCTION_ADMISSION_V1",
+  "admission_timestamp_utc": "2026-11-19T21:56:30Z",
+  "admission_status": "AUTHORIZED_AND_EXECUTING",
+  "research_context": {
+    "source_gate_resolution": "PATH_1_SCIENTIFIC_REPLICATION_AUTHORIZED",
+    "source_candidate_path": "artifacts/research/cp_source_feasibility_2026_07/reconstruction_attempt_1/cp_source_root_results_v2.jsonl",
+    "source_candidate_sha256": "9cfe28a13f185e207ac42c5708597b0577ef93f4fce29ca482e4e6a9c8d83774",
+    "source_candidate_bytes": 764529894,
+    "source_candidate_records": 33859,
+    "historical_source_raw_sha256": "7eb640c572dad4c6607cfb1b5ccf99597672042e5c516f131feab02223ccfa6b"
+  },
+  "preflight_verifications": {
+    "stockfish_binary_path": "/opt/homebrew/bin/stockfish",
+    "stockfish_binary_sha256": "ae4c93fa9676ca7750d0714342fd8a5b1d018000fc6e0f6cedf112067b5ef374",
+    "stockfish_sha_verified": true,
+    "manifest_path": "artifacts/research/cp_source_feasibility_2026_07/cp_root_population_manifest_v2.jsonl.zst",
+    "manifest_decompressed_digest": "5a013e64265820b65d1d3687fcee98aa607ab41470294d11df7b2f803c8e063d",
+    "manifest_digest_verified": true,
+    "manifest_admitted_roots": 33859,
+    "target_runner_approved_sha": "1c8fbb778a7bffb76d149fa1ea00aa3f8c054ce8",
+    "bound_files_diff_empty": true,
+    "bound_files_working_tree_clean": true,
+    "available_disk_space_bytes": 37580963840,
+    "disk_space_verified": true
+  },
+  "calibration_and_probe_proofs": {
+    "stage_0_probe_digest_5_roots": "801ca9d6962b00fa05725b44a5bbaf96a929e9f008160ec35afd63e570c4d3d3",
+    "stage_0_probe_bytes_5_roots": 110644,
+    "stage_0_probe_twin_match": true,
+    "historical_sept_3_probe_1_root_sha256": "080655cb056d1a41eedd3a3524ae3431acafd15fbd7bed36c2121561f2aaaf13",
+    "historical_sept_3_probe_1_root_match": true,
+    "historical_sept_3_probe_16_roots_sha256": "4a7e01366dc58ad589c507b997bdca90da40391bb7bf0427f246196ac965dfe1",
+    "historical_sept_3_probe_16_roots_bytes": 337585,
+    "historical_sept_3_probe_16_roots_match": true
+  },
+  "authorized_execution_parameters": {
+    "execution_command": "PYTHONPATH=src:. CHESSHEAT_STOCKFISH18=/opt/homebrew/bin/stockfish CHESSHEAT_TARGET_ACQUISITION_APPROVED_SHA=1c8fbb778a7bffb76d149fa1ea00aa3f8c054ce8 .venv/bin/python3 -u scripts/run_cp_target_acquisition.py",
+    "instrument_id": "CP_TARGET_SF18_250K_ISOLATED_V1",
+    "node_budget_per_child": 250000,
+    "expected_admitted_roots": 33859,
+    "expected_output_path": "artifacts/research/cp_target_acquisition_2026_07/raw/cp_target_root_results_v2.jsonl",
+    "expected_raw_bytes": 770029516,
+    "expected_raw_sha256": "d9b290bd44902559fd98f3b9c17b35b586ff72425cb2783b42cf76e200e81b00",
+    "estimated_wall_clock_hours": 76.6
+  },
+  "execution_ceiling": {
+    "CHESSHEAT_REAL_TRAINING_AUTHORIZED": 0,
+    "CHESSHEAT_SCIENTIFIC_ANALYSIS_AUTHORIZED": "NOT_PERFORMED",
+    "model_training_permitted": false
+  }
+}
