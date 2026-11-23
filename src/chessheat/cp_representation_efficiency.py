@@ -741,8 +741,11 @@ def verify_replication_training_evidence_preflight(approved_implementation_sha: 
     import subprocess
     def get_sha(path):
         import hashlib
+        h = hashlib.sha256()
         with open(os.path.join(repo_root, path), "rb") as f:
-            return hashlib.sha256(f.read()).hexdigest()
+            while chunk := f.read(65536):
+                h.update(chunk)
+        return h.hexdigest()
             
     if get_sha("artifacts/research/cp_representation_efficiency_protocol_v7.json") != "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef":
         raise ValueError("SHA mismatch for artifacts/research/cp_representation_efficiency_protocol_v7.json")
@@ -794,15 +797,19 @@ def verify_replication_training_evidence_preflight(approved_implementation_sha: 
     if seal_data.get("source_pair_count") != 17788903:
         raise ValueError("source_pair_count mismatch in replication seal")
 
-    raw_source_path = os.path.join(repo_root, "artifacts/research/cp_source_feasibility_2026_07/raw/cp_source_root_results_v2.jsonl")
-    if os.path.exists(raw_source_path):
-        if get_sha("artifacts/research/cp_source_feasibility_2026_07/raw/cp_source_root_results_v2.jsonl") != "9cfe28a13f185e207ac42c5708597b0577ef93f4fce29ca482e4e6a9c8d83774":
-            raise ValueError("SHA mismatch for raw source artifact")
+    raw_source_rel = "artifacts/research/cp_source_feasibility_2026_07/raw/cp_source_root_results_v2.jsonl"
+    raw_source_path = os.path.join(repo_root, raw_source_rel)
+    if not os.path.isfile(raw_source_path):
+        raise ValueError(f"Missing required raw source artifact: {raw_source_rel}")
+    if get_sha(raw_source_rel) != "9cfe28a13f185e207ac42c5708597b0577ef93f4fce29ca482e4e6a9c8d83774":
+        raise ValueError("SHA mismatch for raw source artifact")
 
-    raw_target_path = os.path.join(repo_root, "artifacts/research/cp_target_acquisition_2026_07/raw/cp_target_root_results_v2.jsonl")
-    if os.path.exists(raw_target_path):
-        if get_sha("artifacts/research/cp_target_acquisition_2026_07/raw/cp_target_root_results_v2.jsonl") != "d9b290bd44902559fd98f3b9c17b35b586ff72425cb2783b42cf76e200e81b00":
-            raise ValueError("SHA mismatch for raw target artifact")
+    raw_target_rel = "artifacts/research/cp_target_acquisition_2026_07/raw/cp_target_root_results_v2.jsonl"
+    raw_target_path = os.path.join(repo_root, raw_target_rel)
+    if not os.path.isfile(raw_target_path):
+        raise ValueError(f"Missing required raw target artifact: {raw_target_rel}")
+    if get_sha(raw_target_rel) != "d9b290bd44902559fd98f3b9c17b35b586ff72425cb2783b42cf76e200e81b00":
+        raise ValueError("SHA mismatch for raw target artifact")
 
     for commit_sha in [
         "14b85055fd439cf7f905adf51718544485b1ac17",
@@ -1377,6 +1384,161 @@ def scan_and_validate_results_directory(result_dir: str, job_specs: List[JobSpec
         
     return valid_results
 
+PROHIBITED_MANIFEST_KEYS = {
+    "test_loss", "validation_nll", "validation_loss", "test_nll",
+    "aulc", "delta", "delta_aulc", "scalar_heat", "heat"
+}
+
+def validate_downstream_manifest(manifest_data: Dict, job_specs: List[JobSpec]) -> Dict:
+    if not isinstance(manifest_data, dict):
+        raise ValueError("Manifest data must be a dict")
+        
+    if manifest_data.get("schema") != "CHESSHEAT_DOWNSTREAM_TRAINING_MANIFEST_V1":
+        raise ValueError(f"Invalid manifest schema: {manifest_data.get('schema')}")
+        
+    if manifest_data.get("status") != "TRAINING_COMPLETE_STOPPED_BEFORE_SCIENTIFIC_ANALYSIS":
+        raise ValueError(f"Invalid manifest status: {manifest_data.get('status')}")
+        
+    if manifest_data.get("protocol_id") != "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7":
+        raise ValueError(f"Invalid manifest protocol_id: {manifest_data.get('protocol_id')}")
+
+    lineage = manifest_data.get("lineage")
+    if lineage not in ("V6_HISTORICAL", "V7_REPLICATION_1"):
+        raise ValueError(f"Invalid manifest lineage: {lineage}")
+        
+    if manifest_data.get("total_jobs") != len(job_specs) or manifest_data.get("completed_jobs_count") != len(job_specs):
+        raise ValueError(f"Manifest job count mismatch: total={manifest_data.get('total_jobs')}, completed={manifest_data.get('completed_jobs_count')}, expected={len(job_specs)}")
+        
+    jobs = manifest_data.get("jobs")
+    if not isinstance(jobs, list) or len(jobs) != len(job_specs):
+        raise ValueError(f"Manifest jobs list length mismatch: expected {len(job_specs)}, got {len(jobs) if isinstance(jobs, list) else None}")
+
+    def _check_no_prohibited(obj, prefix=""):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if k in PROHIBITED_MANIFEST_KEYS:
+                    raise ValueError(f"Prohibited scientific outcome key '{k}' found in operational manifest at {prefix}{k}")
+                _check_no_prohibited(v, f"{prefix}{k}.")
+        elif isinstance(obj, list):
+            for i, item in enumerate(obj):
+                _check_no_prohibited(item, f"{prefix}[{i}].")
+
+    _check_no_prohibited(manifest_data)
+
+    for idx, (spec, job_summary) in enumerate(zip(job_specs, jobs)):
+        if not isinstance(job_summary, dict):
+            raise ValueError(f"Manifest job entry {idx} is not a dict")
+        if job_summary.get("condition") != spec.condition:
+            raise ValueError(f"Manifest job {idx} condition mismatch: {job_summary.get('condition')} vs {spec.condition}")
+        if job_summary.get("nominal_budget") != spec.nominal_budget:
+            raise ValueError(f"Manifest job {idx} nominal_budget mismatch: {job_summary.get('nominal_budget')} vs {spec.nominal_budget}")
+        if job_summary.get("seed") != spec.seed:
+            raise ValueError(f"Manifest job {idx} seed mismatch: {job_summary.get('seed')} vs {spec.seed}")
+        if job_summary.get("nominal_root_count") != spec.nominal_budget:
+            raise ValueError(f"Manifest job {idx} nominal_root_count mismatch")
+            
+        eff_count = job_summary.get("effective_training_root_count")
+        if not isinstance(eff_count, int) or isinstance(eff_count, bool) or not (0 <= eff_count <= spec.nominal_budget):
+            raise ValueError(f"Manifest job {idx} effective_training_root_count invalid: {eff_count}")
+            
+        eff_digest = job_summary.get("effective_root_population_digest")
+        if not isinstance(eff_digest, str) or len(eff_digest) != 64 or not all(c in "0123456789abcdefABCDEF" for c in eff_digest):
+            raise ValueError(f"Manifest job {idx} effective_root_population_digest invalid: {eff_digest}")
+            
+        envelope_sha = job_summary.get("envelope_sha256")
+        if not isinstance(envelope_sha, str) or len(envelope_sha) != 64 or not all(c in "0123456789abcdefABCDEF" for c in envelope_sha):
+            raise ValueError(f"Manifest job {idx} envelope_sha256 invalid: {envelope_sha}")
+
+        payload_sha = job_summary.get("payload_sha256")
+        if not isinstance(payload_sha, str) or len(payload_sha) != 64 or not all(c in "0123456789abcdefABCDEF" for c in payload_sha):
+            raise ValueError(f"Manifest job {idx} payload_sha256 invalid: {payload_sha}")
+
+    return manifest_data
+
+def synthesize_and_publish_downstream_manifest(
+    job_specs: List[JobSpec],
+    ordered_results: List[Dict],
+    result_dir: str,
+    ev_id: EvidenceIdentity,
+    approved_sha: str,
+    lineage: str,
+    manifest_path: Optional[str] = None
+) -> str:
+    import hashlib
+    import uuid
+    import json
+    import os
+
+    if manifest_path is None:
+        manifest_filename = (
+            "cp_downstream_manifest_v1.json"
+            if lineage == "V6_HISTORICAL"
+            else "cp_downstream_manifest_v7_rep1.json"
+        )
+        parent_dir = os.path.dirname(os.path.abspath(result_dir))
+        manifest_path = os.path.join(parent_dir, manifest_filename)
+
+    seal_sha = ev_id.seal_v2_sha if lineage == "V6_HISTORICAL" else ev_id.replication_seal_sha
+
+    jobs_summary = []
+    for spec, res in zip(job_specs, ordered_results):
+        envelope_filename = f"worker_result_{spec.condition}_b{spec.nominal_budget}_s{spec.seed}.json"
+        envelope_path = os.path.join(result_dir, envelope_filename)
+        with open(envelope_path, "rb") as f:
+            envelope_bytes = f.read()
+        envelope_sha = hashlib.sha256(envelope_bytes).hexdigest()
+        envelope_data = json.loads(envelope_bytes.decode("utf-8"))
+        payload_sha = envelope_data.get("payload_sha256")
+
+        jobs_summary.append({
+            "condition": spec.condition,
+            "nominal_budget": spec.nominal_budget,
+            "seed": spec.seed,
+            "nominal_root_count": res.get("nominal_root_count"),
+            "effective_training_root_count": res.get("effective_training_root_count"),
+            "effective_root_population_digest": res.get("effective_root_population_digest"),
+            "epochs_completed": res.get("epochs_completed"),
+            "best_epoch": res.get("best_epoch"),
+            "envelope_filename": envelope_filename,
+            "envelope_sha256": envelope_sha,
+            "payload_sha256": payload_sha
+        })
+
+    manifest_data = {
+        "schema": "CHESSHEAT_DOWNSTREAM_TRAINING_MANIFEST_V1",
+        "status": "TRAINING_COMPLETE_STOPPED_BEFORE_SCIENTIFIC_ANALYSIS",
+        "lineage": lineage,
+        "protocol_id": "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7",
+        "protocol_v7_sha256": ev_id.protocol_v7_sha,
+        "seal_sha256": seal_sha,
+        "approved_implementation_sha": approved_sha,
+        "canonical_label_scientific_sha": ev_id.label_scientific_sha,
+        "total_jobs": len(job_specs),
+        "completed_jobs_count": len(jobs_summary),
+        "jobs": jobs_summary
+    }
+
+    validate_downstream_manifest(manifest_data, job_specs)
+
+    manifest_dir = os.path.dirname(os.path.abspath(manifest_path))
+    os.makedirs(manifest_dir, exist_ok=True)
+    temp_path = os.path.join(manifest_dir, f".tmp_manifest_{os.getpid()}_{uuid.uuid4().hex}")
+    content = json.dumps(manifest_data, indent=2, sort_keys=True)
+    with open(temp_path, "w", encoding="utf-8") as f:
+        f.write(content)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temp_path, manifest_path)
+    try:
+        dir_fd = os.open(manifest_dir, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    except Exception:
+        pass
+    return manifest_path
+
 def run_training_parent(
     approved_sha: str,
     cache_path: str,
@@ -1384,7 +1546,8 @@ def run_training_parent(
     repo_root: str = ".",
     result_dir: Optional[str] = None,
     worker_fn: Optional[Callable[[JobSpec], Dict]] = None,
-    lineage: str = "V6_HISTORICAL"
+    lineage: str = "V6_HISTORICAL",
+    manifest_path: Optional[str] = None
 ):
     verify_approved_sha_gate(approved_sha, repo_root)
     check_real_training_authorization()
@@ -1440,6 +1603,15 @@ def run_training_parent(
         
     ordered_results = [completed_results[(s.condition, s.nominal_budget, s.seed)] for s in job_specs]
     validate_completed_worker_results(job_specs, ordered_results)
+    synthesize_and_publish_downstream_manifest(
+        job_specs=job_specs,
+        ordered_results=ordered_results,
+        result_dir=result_dir,
+        ev_id=ev_id,
+        approved_sha=approved_sha,
+        lineage=lineage,
+        manifest_path=manifest_path
+    )
     return "STOP_BEFORE_SCIENTIFIC_ANALYSIS"
 
 

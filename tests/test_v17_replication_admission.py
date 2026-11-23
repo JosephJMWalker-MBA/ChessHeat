@@ -283,6 +283,38 @@ def test_replication_evidence_preflight_tampered_raw_target(monkeypatch):
         verify_replication_training_evidence_preflight(current_head, repo_root=".")
 
 
+def test_replication_evidence_preflight_missing_raw_source(monkeypatch):
+    """If raw source artifact is physically missing, preflight fails closed."""
+    current_head = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()
+    raw_source = os.path.abspath("artifacts/research/cp_source_feasibility_2026_07/raw/cp_source_root_results_v2.jsonl")
+    
+    orig_isfile = os.path.isfile
+    def mock_isfile(path):
+        if os.path.abspath(path) == raw_source:
+            return False
+        return orig_isfile(path)
+        
+    monkeypatch.setattr(os.path, "isfile", mock_isfile)
+    with pytest.raises(ValueError, match="Missing required raw source artifact"):
+        verify_replication_training_evidence_preflight(current_head, repo_root=".")
+
+
+def test_replication_evidence_preflight_missing_raw_target(monkeypatch):
+    """If raw target artifact is physically missing, preflight fails closed."""
+    current_head = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()
+    raw_target = os.path.abspath("artifacts/research/cp_target_acquisition_2026_07/raw/cp_target_root_results_v2.jsonl")
+    
+    orig_isfile = os.path.isfile
+    def mock_isfile(path):
+        if os.path.abspath(path) == raw_target:
+            return False
+        return orig_isfile(path)
+        
+    monkeypatch.setattr(os.path, "isfile", mock_isfile)
+    with pytest.raises(ValueError, match="Missing required raw target artifact"):
+        verify_replication_training_evidence_preflight(current_head, repo_root=".")
+
+
 def test_replication_evidence_preflight_non_ancestor_commit():
     """Unrelated commit without proper provenance ancestry fails closed."""
     with tempfile_commit() as unrelated_commit:
@@ -580,6 +612,22 @@ def test_replication_parent_interruption_and_restart(tmp_path, monkeypatch):
     all_files = [f for f in os.listdir(result_dir) if f.endswith(".json")]
     assert len(all_files) == 160
     
+    # Operational completion manifest verified in parent directory
+    manifest_file = tmp_path / "cp_downstream_manifest_v7_rep1.json"
+    assert manifest_file.exists()
+    with open(manifest_file, "r") as f:
+        manifest_data = json.load(f)
+    assert manifest_data["schema"] == "CHESSHEAT_DOWNSTREAM_TRAINING_MANIFEST_V1"
+    assert manifest_data["lineage"] == "V7_REPLICATION_1"
+    assert manifest_data["status"] == "TRAINING_COMPLETE_STOPPED_BEFORE_SCIENTIFIC_ANALYSIS"
+    assert manifest_data["protocol_id"] == "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7"
+    assert manifest_data["seal_sha256"] == REPLICATION_SEAL_SHA
+    assert manifest_data["total_jobs"] == 160
+    assert manifest_data["completed_jobs_count"] == 160
+    assert len(manifest_data["jobs"]) == 160
+    for prohibited in ["test_loss", "validation_nll", "validation_loss", "test_nll", "aulc", "delta"]:
+        assert prohibited not in str(manifest_data)
+    
     # Phase 3: Second restart on fully completed directory -> executes 0 jobs
     with open(completing_count_file, "w") as f:
         f.write("0")
@@ -661,3 +709,75 @@ def test_cli_runner_lineage_dispatch(monkeypatch):
     assert call_v6["cache_path"] == "artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v6.jsonl"
     assert call_v6["cache_sha"] == V6_LABEL_SCIENTIFIC_SHA
     assert call_v6["result_dir"] == "artifacts/research/cp_representation_efficiency_training_v1/worker_results"
+
+
+# --- Test 9: Operational Manifest Validation & Tamper Resistance ---
+
+def test_operational_manifest_tampering_and_prohibited_outcomes():
+    """Verify that operational manifest rejects prohibited scientific outcomes, count mismatches, and tampered specs."""
+    import copy
+    from chessheat.cp_representation_efficiency import (
+        validate_downstream_manifest,
+        PROHIBITED_MANIFEST_KEYS
+    )
+    
+    specs = _build_fake_160_replication_specs()
+    
+    valid_manifest = {
+        "schema": "CHESSHEAT_DOWNSTREAM_TRAINING_MANIFEST_V1",
+        "status": "TRAINING_COMPLETE_STOPPED_BEFORE_SCIENTIFIC_ANALYSIS",
+        "lineage": "V7_REPLICATION_1",
+        "protocol_id": "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7",
+        "protocol_v7_sha256": "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef",
+        "seal_sha256": REPLICATION_SEAL_SHA,
+        "approved_implementation_sha": REPLICATION_EVIDENCE_COMMIT,
+        "canonical_label_scientific_sha": REPLICATION_CACHE_SHA,
+        "total_jobs": 160,
+        "completed_jobs_count": 160,
+        "jobs": [
+            {
+                "condition": s.condition,
+                "nominal_budget": s.nominal_budget,
+                "seed": s.seed,
+                "nominal_root_count": s.nominal_budget,
+                "effective_training_root_count": s.nominal_budget - 1,
+                "effective_root_population_digest": "a" * 64,
+                "epochs_completed": 10,
+                "best_epoch": 5,
+                "envelope_filename": f"worker_result_{s.condition}_b{s.nominal_budget}_s{s.seed}.json",
+                "envelope_sha256": "b" * 64,
+                "payload_sha256": "c" * 64
+            }
+            for s in specs
+        ]
+    }
+    
+    # Valid manifest passes
+    validated = validate_downstream_manifest(valid_manifest, specs)
+    assert validated["schema"] == "CHESSHEAT_DOWNSTREAM_TRAINING_MANIFEST_V1"
+    
+    # 1. Prohibited scientific keys cause immediate rejection
+    for prohibited_key in PROHIBITED_MANIFEST_KEYS:
+        tampered_manifest = copy.deepcopy(valid_manifest)
+        tampered_manifest["jobs"][0][prohibited_key] = 0.42
+        with pytest.raises(ValueError, match="Prohibited scientific outcome key"):
+            validate_downstream_manifest(tampered_manifest, specs)
+            
+    # 2. Incomplete jobs count causes rejection
+    tampered_manifest = copy.deepcopy(valid_manifest)
+    tampered_manifest["completed_jobs_count"] = 159
+    with pytest.raises(ValueError, match="Manifest job count mismatch"):
+        validate_downstream_manifest(tampered_manifest, specs)
+        
+    # 3. Truncated jobs list causes rejection
+    tampered_manifest = copy.deepcopy(valid_manifest)
+    tampered_manifest["jobs"] = tampered_manifest["jobs"][:159]
+    with pytest.raises(ValueError, match="Manifest jobs list length mismatch"):
+        validate_downstream_manifest(tampered_manifest, specs)
+
+    # 4. Out-of-order job entry causes rejection
+    tampered_manifest = copy.deepcopy(valid_manifest)
+    tampered_manifest["jobs"][0], tampered_manifest["jobs"][1] = tampered_manifest["jobs"][1], tampered_manifest["jobs"][0]
+    with pytest.raises(ValueError, match="condition mismatch|nominal_budget mismatch|seed mismatch"):
+        validate_downstream_manifest(tampered_manifest, specs)
+

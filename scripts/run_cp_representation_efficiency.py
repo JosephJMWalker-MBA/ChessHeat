@@ -15,6 +15,7 @@ def main():
     parser.add_argument("--cache", help="Path to canonical cache")
     parser.add_argument("--cache-sha", help="Expected cache SHA")
     parser.add_argument("--result-dir", help="Directory for sealed worker results")
+    parser.add_argument("--manifest-path", help="Path for operational completion manifest")
     args = parser.parse_args()
 
     approved_sha = os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA")
@@ -35,13 +36,17 @@ def main():
             print(f"Unknown lineage: {args.lineage}", file=sys.stderr)
             sys.exit(1)
 
-        run_training_parent(
-            approved_sha=approved_sha,
-            cache_path=cache_path,
-            cache_sha=cache_sha,
-            result_dir=result_dir,
-            lineage=args.lineage
-        )
+        kwargs = {
+            "approved_sha": approved_sha,
+            "cache_path": cache_path,
+            "cache_sha": cache_sha,
+            "result_dir": result_dir,
+            "lineage": args.lineage,
+        }
+        if args.manifest_path is not None:
+            kwargs["manifest_path"] = args.manifest_path
+
+        run_training_parent(**kwargs)
     else:
         verify_approved_sha_gate(approved_sha)
         check_analysis_authorization()
