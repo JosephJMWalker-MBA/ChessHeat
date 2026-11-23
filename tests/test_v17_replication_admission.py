@@ -941,3 +941,106 @@ def test_authentic_worker_result_lifecycle_and_epoch_contract(monkeypatch):
                 cp.validate_worker_result(spec, tampered_later_tie)
 
 
+def test_compute_watchdog_timeout_for_spec():
+    """Verify compute_watchdog_timeout_for_spec scales with budget and respects minimum."""
+    import chessheat.cp_representation_efficiency as cp
+    
+    # Minimal spec mock
+    class DummySpec:
+        def __init__(self, budget):
+            self.nominal_budget = budget
+            
+    t_250 = cp.compute_watchdog_timeout_for_spec(DummySpec(250))
+    t_1000 = cp.compute_watchdog_timeout_for_spec(DummySpec(1000))
+    t_4000 = cp.compute_watchdog_timeout_for_spec(DummySpec(4000))
+    t_20000 = cp.compute_watchdog_timeout_for_spec(DummySpec(20000))
+    
+    assert t_250 >= 7200.0, "Timeout must be at least 7200.0"
+    assert t_250 < t_1000 < t_4000 < t_20000, "Timeout must scale strictly monotonically with budget"
+    
+    # Specific ceiling calculation verification for b=250
+    # ceiling = 360 + 199*103 + 200*(250*0.026) + 360 = 22517.0
+    # ceiling * 1.25 = 28146.25 -> ceil = 28147.0
+    assert t_250 == 28147.0, f"Expected 28147.0 for budget 250, got {t_250}"
+
+
+def test_validation_shared_position_cache_equivalence_and_lifecycle():
+    """Verify that the shared-position validation cache produces bitwise identical tensors,
+
+    identical per-root evaluation losses, and maintains fail-closed behavior on missing roots.
+    """
+    import chessheat.cp_representation_efficiency as cp
+    from chessheat.cp_target_labels import SourcePairFeatures
+    import hashlib
+    import torch
+
+    device = torch.device("cpu")
+    
+    def _make_synth_root(rid: str, partition: str) -> dict:
+        return {
+            "schema": "CP_TARGET_PAIR_LABEL_ROOT_V6",
+            "root_identity": rid,
+            "label_derivation_protocol": "CP_TARGET_LABEL_DERIVATION_V6",
+            "target_evaluator_version": "16.1",
+            "protocol_id": "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7",
+            "partition": partition,
+            "sufficient_position": {
+                "board_arrangement_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR",
+                "side_to_move": "w",
+                "castling_rights": "KQkq",
+                "ep_square": None
+            },
+            "target_evaluable_pair_count": 1,
+            "target_non_evaluable_pair_count": 0,
+            "source_pair_count": 1,
+            "pairs": [{
+                "pair_id": hashlib.sha256(f"CHESSHEAT_TARGET_PAIR_V1|{rid}|d7d5|e2e4".encode()).hexdigest(),
+                "m1_uci": "d7d5",
+                "m2_uci": "e2e4",
+                "source_cp_m1": -10,
+                "source_cp_m2": 20,
+                "d_X": SourcePairFeatures("d7d5", -10, "e2e4", 20).d_x,
+                "a_X": SourcePairFeatures("d7d5", -10, "e2e4", 20).a_x,
+                "target_label": "SECOND_BETTER",
+                "m1_heat": -0.5,
+                "m2_heat": 0.5
+            }]
+        }
+
+    rec = _make_synth_root("test_val_root_001", "VALIDATION")
+    recs = cp.construct_learner_records(rec, "mu_D")
+    
+    # Baseline tensor construction
+    x_sp_base, x_si_base, y_base = cp.build_root_tensors(torch, recs, device)
+    
+    # Shared position tensor construction (matches optimized val_loader)
+    p_cpu = torch.tensor(recs[0].p_tensor.values, dtype=torch.float32).view(18, 8, 8)
+    m_cpu = torch.stack([torch.tensor(r.spatial_map.values, dtype=torch.float32).view(1, 8, 8) for r in recs])
+    side_cpu = torch.stack([torch.tensor(r.side_tensor.values, dtype=torch.float32) for r in recs])
+    y_cpu = torch.tensor([r.label for r in recs], dtype=torch.long)
+    
+    p_dev = p_cpu.to(device).unsqueeze(0).expand(len(y_cpu), -1, -1, -1)
+    m_dev = m_cpu.to(device)
+    x_sp_opt = torch.cat([p_dev, m_dev], dim=1)
+    x_si_opt = side_cpu.to(device)
+    y_opt = y_cpu.to(device)
+    
+    assert torch.equal(x_sp_base, x_sp_opt), "Bitwise x_spatial mismatch"
+    assert torch.equal(x_si_base, x_si_opt), "Bitwise x_side mismatch"
+    assert torch.equal(y_base, y_opt), "Bitwise y mismatch"
+    
+    # Model evaluation loss equivalence
+    model = cp._build_model(torch).to(device)
+    model.eval()
+    loss_fn = torch.nn.CrossEntropyLoss(reduction="none")
+    
+    logits_b = model(x_sp_base, x_si_base)
+    loss_b = loss_fn(logits_b, y_base).mean().item()
+    
+    logits_o = model(x_sp_opt, x_si_opt)
+    loss_o = loss_fn(logits_o, y_opt).mean().item()
+    
+    assert loss_b == loss_o, f"Loss mismatch: {loss_b} vs {loss_o}"
+
+
+

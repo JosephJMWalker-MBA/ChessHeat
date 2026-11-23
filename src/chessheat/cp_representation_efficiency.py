@@ -399,6 +399,7 @@ def run_training_job(
     model = initialize_model_cpu_then_mps(_build_model, ctx)
     optimizer = build_frozen_adam(model, torch)
     loss_fn = torch.nn.CrossEntropyLoss(reduction='none')
+    records_map = None
     
     if cache is not None:
         if nominal_root_ids is None or validation_root_ids is None or test_root_ids is None:
@@ -530,6 +531,38 @@ def run_training_job(
     effective_root_population_digest = canonical_root_population_digest(effective_root_ids)
     test_eval_count = 0
     
+    val_cache = {}
+    def val_loader(rid: str):
+        entry = val_cache.get(rid)
+        if entry is not None:
+            p_cpu, m_cpu, side_cpu, y_cpu = entry
+            p_dev = p_cpu.to(device).unsqueeze(0).expand(len(y_cpu), -1, -1, -1)
+            m_dev = m_cpu.to(device)
+            x_spatial = torch.cat([p_dev, m_dev], dim=1)
+            x_side = side_cpu.to(device)
+            y = y_cpu.to(device)
+            return x_spatial, x_side, y
+            
+        rec = cache.get_root(rid) if cache is not None else records_map.get(rid)
+        if not rec:
+            raise ValueError(f"Root {rid} not found" + (" in cache" if cache is not None else ""))
+        read_and_validate_roots([rec])
+        recs = construct_learner_records(rec, condition)
+        if not recs:
+            return None
+        p_cpu = torch.tensor(recs[0].p_tensor.values, dtype=torch.float32).view(18, 8, 8)
+        m_cpu = torch.stack([torch.tensor(r.spatial_map.values, dtype=torch.float32).view(1, 8, 8) for r in recs])
+        side_cpu = torch.stack([torch.tensor(r.side_tensor.values, dtype=torch.float32) for r in recs])
+        y_cpu = torch.tensor([r.label for r in recs], dtype=torch.long)
+        val_cache[rid] = (p_cpu, m_cpu, side_cpu, y_cpu)
+        
+        p_dev = p_cpu.to(device).unsqueeze(0).expand(len(y_cpu), -1, -1, -1)
+        m_dev = m_cpu.to(device)
+        x_spatial = torch.cat([p_dev, m_dev], dim=1)
+        x_side = side_cpu.to(device)
+        y = y_cpu.to(device)
+        return x_spatial, x_side, y
+    
     for epoch in range(200):
         model.train()
         epoch_root_ids = get_epoch_order(seed, epoch, effective_root_ids)
@@ -553,7 +586,7 @@ def run_training_job(
                 optimizer.step()
             del total_loss
             
-        val_nlls = evaluate_roots(model, loader, list(val_root_ids), torch)
+        val_nlls = evaluate_roots(model, val_loader, list(val_root_ids), torch)
         val_loss = sum(val_nlls.values()) / len(val_nlls)
         if not math.isfinite(val_loss):
             raise ValueError("Non-finite validation loss encountered")
@@ -948,10 +981,15 @@ def _process_wrapper(spec, worker_fn, q):
     except Exception as e:
         q.put((False, e))
 
+def compute_watchdog_timeout_for_spec(spec: JobSpec) -> float:
+    b = getattr(spec, "nominal_budget", 250)
+    ceiling_seconds = 360.0 + 199.0 * 103.0 + 200.0 * (b * 0.026) + 360.0
+    return max(7200.0, float(math.ceil(ceiling_seconds * 1.25)))
+
 def run_job_specs(
     job_specs: List[JobSpec],
     worker_fn,
-    watchdog_timeout: float = 7200.0,
+    watchdog_timeout: Optional[float] = None,
     on_result_success = None
 ):
     import multiprocessing
@@ -962,6 +1000,12 @@ def run_job_specs(
         q = multiprocessing.Queue()
         p = multiprocessing.Process(target=_process_wrapper, args=(spec, worker_fn, q))
         p.start()
+        
+        effective_timeout = (
+            watchdog_timeout
+            if watchdog_timeout is not None
+            else compute_watchdog_timeout_for_spec(spec)
+        )
         
         import time
         start_t = time.monotonic()
@@ -979,7 +1023,7 @@ def run_job_specs(
                     except queue.Empty:
                         break
                 
-                if time.monotonic() - start_t > watchdog_timeout:
+                if time.monotonic() - start_t > effective_timeout:
                     p.terminate()
                     p.join()
                     q.close()
@@ -1547,7 +1591,8 @@ def run_training_parent(
     result_dir: Optional[str] = None,
     worker_fn: Optional[Callable[[JobSpec], Dict]] = None,
     lineage: str = "V6_HISTORICAL",
-    manifest_path: Optional[str] = None
+    manifest_path: Optional[str] = None,
+    watchdog_timeout: Optional[float] = None
 ):
     verify_approved_sha_gate(approved_sha, repo_root)
     check_real_training_authorization()
@@ -1592,7 +1637,12 @@ def run_training_parent(
             envelope = make_sealed_worker_result(spec, res)
             save_sealed_worker_result(result_dir, spec, envelope)
             
-        new_results = run_job_specs(missing_specs, target_worker, on_result_success=on_success)
+        new_results = run_job_specs(
+            missing_specs,
+            target_worker,
+            watchdog_timeout=watchdog_timeout,
+            on_result_success=on_success
+        )
         for res in new_results:
             tuple_key = (res["condition"], res["nominal_budget"], res["seed"])
             completed_results[tuple_key] = res

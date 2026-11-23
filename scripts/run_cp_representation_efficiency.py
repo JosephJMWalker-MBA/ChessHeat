@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--cache-sha", help="Expected cache SHA")
     parser.add_argument("--result-dir", help="Directory for sealed worker results")
     parser.add_argument("--manifest-path", help="Path for operational completion manifest")
+    parser.add_argument("--watchdog-timeout", type=float, default=None, help="Watchdog timeout in seconds per worker job")
     args = parser.parse_args()
 
     approved_sha = os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA")
@@ -45,6 +46,8 @@ def main():
         }
         if args.manifest_path is not None:
             kwargs["manifest_path"] = args.manifest_path
+        if args.watchdog_timeout is not None:
+            kwargs["watchdog_timeout"] = args.watchdog_timeout
 
         run_training_parent(**kwargs)
     else:
