@@ -588,7 +588,7 @@ def run_training_job(
         "effective_root_population_digest": effective_root_population_digest,
         "validation_population_digest": validation_population_digest,
         "test_population_digest": test_population_digest,
-        "best_epoch": best_epoch,
+        "best_epoch": best_epoch + 1,
         "best_validation_root_nll": best_val_nll,
         "epochs_completed": epoch + 1,
         "validation_trace": val_trace,

@@ -781,3 +781,163 @@ def test_operational_manifest_tampering_and_prohibited_outcomes():
     with pytest.raises(ValueError, match="condition mismatch|nominal_budget mismatch|seed mismatch"):
         validate_downstream_manifest(tampered_manifest, specs)
 
+
+# --- Test 10: Authentic Worker-Result Lifecycle and Epoch Contract ---
+
+def test_authentic_worker_result_lifecycle_and_epoch_contract(monkeypatch):
+    """Verify that authentic run_training_job outputs pass validate_worker_result,
+    make_sealed_worker_result, and validate_sealed_worker_result across:
+    1. First-epoch minimum (best_epoch == 1)
+    2. Intermediate-epoch minimum (best_epoch == 4)
+    3. Final-epoch minimum (best_epoch == 5)
+    4. Earliest-tie minimum (best_epoch == 2 when epochs 2 and 4 tie)
+    Also verify hostile mutations fail closed.
+    """
+    import copy
+    import torch
+    import hashlib
+    from chessheat.cp_target_labels import SourcePairFeatures
+    from chessheat.ml_runtime import RuntimeContext
+    import chessheat.cp_representation_efficiency as cp
+    
+    ctx = RuntimeContext(torch, torch.device("cpu"), 1729)
+    monkeypatch.setattr(cp, "configure_runtime", lambda seed: ctx)
+
+    def _make_root(rid: str, partition: str) -> dict:
+        return {
+            "schema": "CP_TARGET_PAIR_LABEL_ROOT_V6",
+            "root_identity": rid,
+            "label_derivation_protocol": "CP_TARGET_LABEL_DERIVATION_V6",
+            "target_evaluator_version": "16.1",
+            "protocol_id": "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7",
+            "partition": partition,
+            "sufficient_position": {
+                "board_arrangement_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR",
+                "side_to_move": "w",
+                "castling_rights": "KQkq",
+                "ep_square": None
+            },
+            "target_evaluable_pair_count": 1,
+            "target_non_evaluable_pair_count": 0,
+            "source_pair_count": 1,
+            "pairs": [{
+                "pair_id": hashlib.sha256(f"CHESSHEAT_TARGET_PAIR_V1|{rid}|d7d5|e2e4".encode()).hexdigest(),
+                "m1_uci": "d7d5",
+                "m2_uci": "e2e4",
+                "source_cp_m1": -10,
+                "source_cp_m2": 20,
+                "d_X": SourcePairFeatures("d7d5", -10, "e2e4", 20).d_x,
+                "a_X": SourcePairFeatures("d7d5", -10, "e2e4", 20).a_x,
+                "target_label": "SECOND_BETTER",
+                "m1_heat": -0.5,
+                "m2_heat": 0.5
+            }]
+        }
+
+    train_roots = [_make_root(f"tr{i:04d}", "TRAIN") for i in range(250)]
+    train_roots.sort(key=lambda x: cp.canonical_budget_order(x["root_identity"]))
+    val_roots = [_make_root("val1", "VALIDATION")]
+    test_roots = [_make_root("test1", "TEST")]
+
+    train_ids = [r["root_identity"] for r in train_roots]
+    val_ids = [r["root_identity"] for r in val_roots]
+    test_ids = [r["root_identity"] for r in test_roots]
+
+    train_d = cp.canonical_root_population_digest(train_ids)
+    val_d = cp.canonical_root_population_digest(val_ids)
+    test_d = cp.canonical_root_population_digest(test_ids)
+
+    current_head = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()
+
+    spec = cp.JobSpec(
+        condition="mu_D",
+        nominal_budget=250,
+        seed=1729,
+        nominal_root_ids=tuple(train_ids),
+        nominal_root_population_digest=train_d,
+        validation_root_ids=tuple(val_ids),
+        validation_population_digest=val_d,
+        test_root_ids=tuple(test_ids),
+        test_population_digest=test_d,
+        protocol_v7_sha="ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef",
+        seal_v2_sha=None,
+        label_scientific_sha="1b148d07c1cad975b5d21233cd7b384493a61a666cdec06b4e733b82379afba3",
+        runtime_v3_identity="CHESSHEAT_ML_RUNTIME_V3",
+        runtime_v3_pin_sha="e69ae6bcbf96a327b021665b5ac21b63c269cd821be84d567867058b09e98932",
+        approved_implementation_sha=current_head,
+        cache_path="artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v7_rep1.jsonl",
+        lineage="V7_REPLICATION_1",
+        replication_seal_sha=REPLICATION_SEAL_SHA
+    )
+
+    regimes = [
+        ([0.3, 0.5, 0.6], 1, "first-epoch minimum"),
+        ([0.8, 0.6, 0.4, 0.2, 0.5], 4, "intermediate-epoch minimum"),
+        ([0.9, 0.8, 0.7, 0.6, 0.5], 5, "final-epoch minimum"),
+        ([0.6, 0.3, 0.5, 0.3, 0.7], 2, "earliest-tie minimum (epochs 2 and 4 tie at 0.3)")
+    ]
+
+    for val_seq, expected_best, regime_name in regimes:
+        eval_state = {"idx": 0}
+        def mock_eval(model, loader, root_ids, torch_mod):
+            if root_ids == ["test1"]:
+                return {"test1": 0.5}
+            idx = eval_state["idx"]
+            v = val_seq[idx] if idx < len(val_seq) else 100.0
+            eval_state["idx"] += 1
+            return {"val1": v}
+
+        monkeypatch.setattr(cp, "evaluate_roots", mock_eval)
+
+        # Execute authentic training job
+        raw_result = cp.run_training_job(
+            condition=spec.condition,
+            nominal_budget=spec.nominal_budget,
+            seed=spec.seed,
+            training_root_records=train_roots,
+            validation_root_records=val_roots,
+            test_root_records=test_roots,
+            nominal_root_population_digest=spec.nominal_root_population_digest,
+            validation_population_digest=spec.validation_population_digest,
+            test_population_digest=spec.test_population_digest
+        )
+
+        # 1. Verify 1-based indexing contract
+        assert raw_result["best_epoch"] == expected_best, f"Failed for {regime_name}: got {raw_result['best_epoch']}"
+        expected_earliest = raw_result["validation_trace"].index(min(raw_result["validation_trace"])) + 1
+        assert raw_result["best_epoch"] == expected_earliest, f"Failed for {regime_name}"
+        assert 1 <= raw_result["best_epoch"] <= raw_result["epochs_completed"]
+
+        # 2. Bind provenance fields as worker does
+        for k in ["approved_implementation_sha", "protocol_v7_sha", "seal_v2_sha",
+                  "replication_seal_sha", "lineage", "label_scientific_sha",
+                  "runtime_v3_identity", "runtime_v3_pin_sha"]:
+            raw_result[k] = getattr(spec, k)
+
+        # 3. Pass through validate_worker_result
+        validated_payload = cp.validate_worker_result(spec, raw_result)
+        assert validated_payload["best_epoch"] == expected_best
+
+        # 4. Pass through make_sealed_worker_result
+        envelope = cp.make_sealed_worker_result(spec, raw_result)
+        assert envelope["schema"] == "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_SEAL_V1"
+
+        # 5. Pass through validate_sealed_worker_result
+        unsealed_payload = cp.validate_sealed_worker_result(envelope, spec)
+        assert unsealed_payload["best_epoch"] == expected_best
+        assert unsealed_payload["canonical_model_state_sha"] == raw_result["canonical_model_state_sha"]
+
+        # 6. Hostile mutation: 0-based best_epoch fails closed
+        tampered_zero_based = copy.deepcopy(raw_result)
+        tampered_zero_based["best_epoch"] = expected_best - 1
+        with pytest.raises(ValueError, match="best_epoch"):
+            cp.validate_worker_result(spec, tampered_zero_based)
+
+        # 7. Hostile mutation: pointing to later tie epoch fails closed
+        if regime_name == "earliest-tie minimum (epochs 2 and 4 tie at 0.3)":
+            tampered_later_tie = copy.deepcopy(raw_result)
+            tampered_later_tie["best_epoch"] = 4  # later tie at epoch 4
+            with pytest.raises(ValueError, match="does not match earliest-minimum epoch"):
+                cp.validate_worker_result(spec, tampered_later_tie)
+
+

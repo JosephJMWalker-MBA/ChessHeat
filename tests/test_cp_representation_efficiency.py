@@ -1081,13 +1081,13 @@ print(json.dumps(out))
     out = json.loads(p.stdout.strip())
     
     assert out["strict_improve"].get("status") == "ok", out["strict_improve"]
-    assert out["strict_improve"]["best"] == 3
-    assert out["strict_improve"]["epochs"] == 3 + 20 + 1 # wait, it runs epoch 3 (the best), then 20 more epochs of failure, total 24 epochs!
-    assert out["equal_no_improve"]["best"] == 0
+    assert out["strict_improve"]["best"] == 4
+    assert out["strict_improve"]["epochs"] == 3 + 20 + 1 # runs epoch 3 (4th epoch, 1-based best 4), then 20 epochs of failure, total 24 epochs
+    assert out["equal_no_improve"]["best"] == 1
     assert out["nan"]["status"] == "error"
     assert out["inf"]["status"] == "error"
     assert out["ninf"]["status"] == "error"
-    assert out["never_stop"]["best"] == 199
+    assert out["never_stop"]["best"] == 200
     assert out["never_stop"]["epochs"] == 200
 
 def test_model_state_digest_hostile_proof():
