@@ -50,9 +50,9 @@
     "watchdog_reconciliation": {
       "policy": "Budget-aware 200-epoch ceiling with 25% safety margin: max(7200, ceil((360 + 199*103 + 200*(b*0.026) + 360) * 1.25))",
       "budget_250_timeout_seconds": 28147.0,
-      "budget_1000_timeout_seconds": 28196.0,
-      "budget_4000_timeout_seconds": 28391.0,
-      "budget_20000_timeout_seconds": 29431.0
+      "budget_1000_timeout_seconds": 33022.0,
+      "budget_4000_timeout_seconds": 52522.0,
+      "budget_20000_timeout_seconds": 156522.0
     }
   },
   "frozen_model_and_optimizer_specification": {
