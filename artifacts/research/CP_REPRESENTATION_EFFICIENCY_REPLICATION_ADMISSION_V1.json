@@ -1,8 +1,8 @@
 {
   "schema": "CP_REPRESENTATION_EFFICIENCY_REPLICATION_ADMISSION_V1",
   "status": "V17_REPLICATION_PRODUCTION_ADMISSION_READY",
-  "admission_timestamp_utc": "2026-11-23T18:20:00Z",
-  "approved_implementation_sha": "aa6cd9cb85cc054c42ccd6e3509e0ce75402e4f9",
+  "admission_timestamp_utc": "2026-11-23T22:00:00Z",
+  "approved_implementation_sha": "eebd1a6f44621ef938283bcae8ab569cda4f706c",
   "lineage": "V7_REPLICATION_1",
   "historical_v6_lineage": "V6_HISTORICAL",
   "protocol_id": "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7",
@@ -44,6 +44,17 @@
     "independent_completeness_certification": true,
     "prohibited_scientific_outcomes_enforced": true
   },
+  "performance_recovery": {
+    "validation_cache": "Immutable shared-position CPU cache per worker process (bitwise identical tensors, zero inter-root or inter-epoch leakage)",
+    "validation_epoch_duration_seconds": 102.4,
+    "watchdog_reconciliation": {
+      "policy": "Budget-aware 200-epoch ceiling with 25% safety margin: max(7200, ceil((360 + 199*103 + 200*(b*0.026) + 360) * 1.25))",
+      "budget_250_timeout_seconds": 28147.0,
+      "budget_1000_timeout_seconds": 28196.0,
+      "budget_4000_timeout_seconds": 28391.0,
+      "budget_20000_timeout_seconds": 29431.0
+    }
+  },
   "frozen_model_and_optimizer_specification": {
     "model_architecture": "RepNet (3-layer Conv2d spatial trunk with AdaptiveAvgPool2d, Linear side trunk, combined MLP head to 3 classes)",
     "optimizer": "Adam (lr=0.001, betas=(0.9, 0.999), eps=1e-8, weight_decay=1e-5, amsgrad=False)",
@@ -56,14 +67,14 @@
     "lifecycle_verified": true
   },
   "production_entry_point": "scripts/run_cp_representation_efficiency.py",
-  "production_execution_command": "PYTHONPATH=src:. CHESSHEAT_REPO_ROOT=$(pwd) CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA=aa6cd9cb85cc054c42ccd6e3509e0ce75402e4f9 CHESSHEAT_REAL_TRAINING_AUTHORIZED=CHESSHEAT_REAL_TRAINING_V1_AUTHORIZED .venv/bin/python3 -u scripts/run_cp_representation_efficiency.py --mode train --lineage V7_REPLICATION_1",
+  "production_execution_command": "PYTHONPATH=src:. CHESSHEAT_REPO_ROOT=$(pwd) CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA=eebd1a6f44621ef938283bcae8ab569cda4f706c CHESSHEAT_REAL_TRAINING_AUTHORIZED=CHESSHEAT_REAL_TRAINING_V1_AUTHORIZED .venv/bin/python3 -u scripts/run_cp_representation_efficiency.py --mode train --lineage V7_REPLICATION_1",
   "authoritative_test_suites": {
     "tests/test_v17_repair_authoritative.py": {
       "passed": 15,
       "failed": 0
     },
     "tests/test_v17_replication_admission.py": {
-      "passed": 21,
+      "passed": 23,
       "failed": 0
     },
     "tests/test_cp_representation_efficiency.py": {
@@ -71,10 +82,10 @@
       "failed": 0
     },
     "full_repository_regression_suite": {
-      "passed": 377,
+      "passed": 379,
       "failed": 0,
       "warnings": 1,
-      "runtime_seconds": 218.86
+      "runtime_seconds": 225.30
     }
   },
   "hostile_audit_verdict": "PASS",
