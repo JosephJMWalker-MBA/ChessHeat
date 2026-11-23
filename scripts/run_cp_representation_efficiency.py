@@ -11,8 +11,10 @@ from chessheat.cp_representation_efficiency import (
 def main():
     parser = argparse.ArgumentParser(description="ChessHeat Downstream Runner")
     parser.add_argument("--mode", required=True, choices=["train", "analyze"])
+    parser.add_argument("--lineage", default="V6_HISTORICAL", choices=["V6_HISTORICAL", "V7_REPLICATION_1"], help="Data lineage to train on")
     parser.add_argument("--cache", help="Path to canonical cache")
     parser.add_argument("--cache-sha", help="Expected cache SHA")
+    parser.add_argument("--result-dir", help="Directory for sealed worker results")
     args = parser.parse_args()
 
     approved_sha = os.environ.get("CHESSHEAT_DOWNSTREAM_TRAINING_APPROVED_SHA")
@@ -21,10 +23,25 @@ def main():
         sys.exit(1)
 
     if args.mode == "train":
-        if not args.cache or not args.cache_sha:
-            print("Missing --cache or --cache-sha for train", file=sys.stderr)
+        if args.lineage == "V7_REPLICATION_1":
+            cache_path = args.cache or "artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v7_rep1.jsonl"
+            cache_sha = args.cache_sha or "1b148d07c1cad975b5d21233cd7b384493a61a666cdec06b4e733b82379afba3"
+            result_dir = args.result_dir or "artifacts/research/cp_representation_efficiency_training_v7_rep1/worker_results"
+        elif args.lineage == "V6_HISTORICAL":
+            cache_path = args.cache or "artifacts/research/cp_target_labels_2026_07/cp_target_pair_labels_v6.jsonl"
+            cache_sha = args.cache_sha or "c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2"
+            result_dir = args.result_dir or "artifacts/research/cp_representation_efficiency_training_v1/worker_results"
+        else:
+            print(f"Unknown lineage: {args.lineage}", file=sys.stderr)
             sys.exit(1)
-        run_training_parent(approved_sha, args.cache, args.cache_sha)
+
+        run_training_parent(
+            approved_sha=approved_sha,
+            cache_path=cache_path,
+            cache_sha=cache_sha,
+            result_dir=result_dir,
+            lineage=args.lineage
+        )
     else:
         verify_approved_sha_gate(approved_sha)
         check_analysis_authorization()

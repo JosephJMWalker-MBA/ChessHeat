@@ -27,6 +27,7 @@ BOUND_FILES = [
     "artifacts/research/ml_runtime_code_lock_v3.json",
     "requirements/ml-runtime-v3.txt",
     "artifacts/research/cp_target_labels_2026_07/cp_target_label_derivation_seal_v2.json",
+    "artifacts/research/cp_target_labels_2026_07/cp_target_label_derivation_seal_v7_rep1.json",
     "artifacts/research/target_label_derivation_runtime_pin_v1.json",
     "requirements/target-label-runtime-v1.txt"
 ]
@@ -665,7 +666,7 @@ from typing import Dict, List
 @dataclass(frozen=True)
 class EvidenceIdentity:
     protocol_v7_sha: str
-    seal_v2_sha: str
+    seal_v2_sha: Optional[str]
     runtime_v3_pin_sha: str
     runtime_v3_package_lock_sha: str
     runtime_v3_code_lock_sha: str
@@ -676,6 +677,12 @@ class EvidenceIdentity:
     evidence_supplement_commit: str
     label_scientific_sha: str
     label_compressed_sha: str
+    lineage: str = "V6_HISTORICAL"
+    replication_seal_sha: Optional[str] = None
+    source_raw_sha: Optional[str] = None
+    target_raw_sha: Optional[str] = None
+    manifest_digest: Optional[str] = None
+    derivation_implementation_commit: Optional[str] = None
 
 def verify_training_evidence_preflight(approved_implementation_sha: str, repo_root: str = ".") -> EvidenceIdentity:
     import os
@@ -724,7 +731,109 @@ def verify_training_evidence_preflight(approved_implementation_sha: str, repo_ro
         evidence_audit_commit="2f7560a38427754404c6f1ee6115db950d18815c",
         evidence_supplement_commit="87e1edad72d2899d0bc7a05d11d9601d60b7cba3",
         label_scientific_sha="c54c897b1e1db14ae507a4ea4c23463aaed4a5be23b7d44cf34422a9e3bde4d2",
-        label_compressed_sha="dea9346f9cb125f9c35e8824bb937daf4ea7fc51cff7f6c7c437caac8ae2c92d"
+        label_compressed_sha="dea9346f9cb125f9c35e8824bb937daf4ea7fc51cff7f6c7c437caac8ae2c92d",
+        lineage="V6_HISTORICAL"
+    )
+
+def verify_replication_training_evidence_preflight(approved_implementation_sha: str, repo_root: str = ".") -> EvidenceIdentity:
+    import os
+    import json
+    import subprocess
+    def get_sha(path):
+        import hashlib
+        with open(os.path.join(repo_root, path), "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+            
+    if get_sha("artifacts/research/cp_representation_efficiency_protocol_v7.json") != "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef":
+        raise ValueError("SHA mismatch for artifacts/research/cp_representation_efficiency_protocol_v7.json")
+    seal_rel = "artifacts/research/cp_target_labels_2026_07/cp_target_label_derivation_seal_v7_rep1.json"
+    seal_sha = get_sha(seal_rel)
+    if seal_sha != "c2457bb1531856b0e2b235a69dd2b7b77b64e2419032cf6616cffe6a96b2baa8":
+        raise ValueError(f"SHA mismatch for {seal_rel}: got {seal_sha}")
+    if get_sha("artifacts/research/ml_runtime_pin_v3.json") != "e69ae6bcbf96a327b021665b5ac21b63c269cd821be84d567867058b09e98932":
+        raise ValueError("SHA mismatch for artifacts/research/ml_runtime_pin_v3.json")
+    if get_sha("artifacts/research/ml_runtime_package_lock_v3.json") != "2127b9709ef8786f47b9306040a56706ff3a7f6535d2439d692c67bac5fac54d":
+        raise ValueError("SHA mismatch for artifacts/research/ml_runtime_package_lock_v3.json")
+    if get_sha("artifacts/research/ml_runtime_code_lock_v3.json") != "9eebefd15c6c1fe93340a69f270f9bf02f7572b4a307d174307f786355a4ec84":
+        raise ValueError("SHA mismatch for artifacts/research/ml_runtime_code_lock_v3.json")
+    if get_sha("requirements/ml-runtime-v3.txt") != "79ea33529376312052c7f98d0e19e812029697d4ff15a2e93106f94f023bf7c9":
+        raise ValueError("SHA mismatch for requirements/ml-runtime-v3.txt")
+    if get_sha("artifacts/research/target_label_derivation_runtime_pin_v1.json") != "dc707aa6d2709fcdfb108263356a8b0cab4cc459dffd29ba5524241f48ea3e22":
+        raise ValueError("SHA mismatch for artifacts/research/target_label_derivation_runtime_pin_v1.json")
+    if get_sha("requirements/target-label-runtime-v1.txt") != "da56c02977e00d88d897af40d227d773822aa7134d30e1d40c68e1518d666026":
+        raise ValueError("SHA mismatch for requirements/target-label-runtime-v1.txt")
+
+    seal_full_path = os.path.join(repo_root, seal_rel)
+    with open(seal_full_path, "r", encoding="utf-8") as f:
+        seal_data = json.load(f)
+
+    if seal_data.get("schema") != "CP_TARGET_LABEL_DERIVATION_SEAL_V7_REP1":
+        raise ValueError("Invalid schema in replication seal")
+    if seal_data.get("status") != "TARGET_LABEL_DERIVATION_V7_REP1_SEALED":
+        raise ValueError("Invalid status in replication seal")
+    if seal_data.get("protocol_id") != "CP_REPRESENTATION_EFFICIENCY_PROTOCOL_V7":
+        raise ValueError("protocol_id mismatch in replication seal")
+    if seal_data.get("label_derivation_protocol") != "CP_TARGET_LABEL_DERIVATION_V7_REPLICATION_1":
+        raise ValueError("label_derivation_protocol mismatch in replication seal")
+    if seal_data.get("protocol_json_sha256") != "ea1242de3b2f0ac1613ac9b838f014ad00ae8910cfd51d8b99c6fb77f15e29ef":
+        raise ValueError("protocol_json_sha256 mismatch in replication seal")
+    if seal_data.get("source_raw_sha256") != "9cfe28a13f185e207ac42c5708597b0577ef93f4fce29ca482e4e6a9c8d83774":
+        raise ValueError("source_raw_sha256 mismatch in replication seal")
+    if seal_data.get("target_raw_sha256") != "d9b290bd44902559fd98f3b9c17b35b586ff72425cb2783b42cf76e200e81b00":
+        raise ValueError("target_raw_sha256 mismatch in replication seal")
+    if seal_data.get("manifest_decompressed_sha256") != "5a013e64265820b65d1d3687fcee98aa607ab41470294d11df7b2f803c8e063d":
+        raise ValueError("manifest_decompressed_sha256 mismatch in replication seal")
+    if seal_data.get("decompressed_canonical_sha256") != "1b148d07c1cad975b5d21233cd7b384493a61a666cdec06b4e733b82379afba3":
+        raise ValueError("decompressed_canonical_sha256 mismatch in replication seal")
+    if seal_data.get("compressed_sha256") != "5ab9d94e5806b19721879962f15e5ecd1763cdb0380c85337571af6596a3a61e":
+        raise ValueError("compressed_sha256 mismatch in replication seal")
+    if seal_data.get("implementation_sha") != "14b85055fd439cf7f905adf51718544485b1ac17":
+        raise ValueError("implementation_sha mismatch in replication seal")
+    if seal_data.get("pair_eligible_root_count") != 33444:
+        raise ValueError("pair_eligible_root_count mismatch in replication seal")
+    if seal_data.get("source_pair_count") != 17788903:
+        raise ValueError("source_pair_count mismatch in replication seal")
+
+    raw_source_path = os.path.join(repo_root, "artifacts/research/cp_source_feasibility_2026_07/raw/cp_source_root_results_v2.jsonl")
+    if os.path.exists(raw_source_path):
+        if get_sha("artifacts/research/cp_source_feasibility_2026_07/raw/cp_source_root_results_v2.jsonl") != "9cfe28a13f185e207ac42c5708597b0577ef93f4fce29ca482e4e6a9c8d83774":
+            raise ValueError("SHA mismatch for raw source artifact")
+
+    raw_target_path = os.path.join(repo_root, "artifacts/research/cp_target_acquisition_2026_07/raw/cp_target_root_results_v2.jsonl")
+    if os.path.exists(raw_target_path):
+        if get_sha("artifacts/research/cp_target_acquisition_2026_07/raw/cp_target_root_results_v2.jsonl") != "d9b290bd44902559fd98f3b9c17b35b586ff72425cb2783b42cf76e200e81b00":
+            raise ValueError("SHA mismatch for raw target artifact")
+
+    for commit_sha in [
+        "14b85055fd439cf7f905adf51718544485b1ac17",
+        "732ba450f47511d0f93af0dcaef924b2f2a57f89",
+        "2f7560a38427754404c6f1ee6115db950d18815c",
+        "87e1edad72d2899d0bc7a05d11d9601d60b7cba3"
+    ]:
+        try:
+            subprocess.check_call(["git", "merge-base", "--is-ancestor", commit_sha, approved_implementation_sha], cwd=repo_root, stderr=subprocess.STDOUT)
+        except Exception:
+            raise ValueError(f"Required provenance commit {commit_sha} missing or not an ancestor of {approved_implementation_sha}")
+
+    return EvidenceIdentity(
+        protocol_v7_sha=get_sha("artifacts/research/cp_representation_efficiency_protocol_v7.json"),
+        seal_v2_sha=None,
+        runtime_v3_pin_sha=get_sha("artifacts/research/ml_runtime_pin_v3.json"),
+        runtime_v3_package_lock_sha=get_sha("artifacts/research/ml_runtime_package_lock_v3.json"),
+        runtime_v3_code_lock_sha=get_sha("artifacts/research/ml_runtime_code_lock_v3.json"),
+        runtime_v3_requirements_sha=get_sha("requirements/ml-runtime-v3.txt"),
+        target_label_runtime_pin_sha=get_sha("artifacts/research/target_label_derivation_runtime_pin_v1.json"),
+        target_label_requirements_sha=get_sha("requirements/target-label-runtime-v1.txt"),
+        evidence_audit_commit="2f7560a38427754404c6f1ee6115db950d18815c",
+        evidence_supplement_commit="87e1edad72d2899d0bc7a05d11d9601d60b7cba3",
+        label_scientific_sha="1b148d07c1cad975b5d21233cd7b384493a61a666cdec06b4e733b82379afba3",
+        label_compressed_sha="5ab9d94e5806b19721879962f15e5ecd1763cdb0380c85337571af6596a3a61e",
+        lineage="V7_REPLICATION_1",
+        replication_seal_sha=seal_sha,
+        source_raw_sha="9cfe28a13f185e207ac42c5708597b0577ef93f4fce29ca482e4e6a9c8d83774",
+        target_raw_sha="d9b290bd44902559fd98f3b9c17b35b586ff72425cb2783b42cf76e200e81b00",
+        manifest_digest="5a013e64265820b65d1d3687fcee98aa607ab41470294d11df7b2f803c8e063d",
+        derivation_implementation_commit="14b85055fd439cf7f905adf51718544485b1ac17"
     )
 
 def canonical_root_population_digest(root_ids):
@@ -784,13 +893,15 @@ class JobSpec:
     test_root_ids: tuple
     test_population_digest: str
     protocol_v7_sha: str
-    seal_v2_sha: str
+    seal_v2_sha: Optional[str]
     label_scientific_sha: str
     runtime_v3_identity: str
     runtime_v3_pin_sha: str
     approved_implementation_sha: str
     cache_path: str
     effective_root_population_digest: Optional[str] = None
+    lineage: str = "V6_HISTORICAL"
+    replication_seal_sha: Optional[str] = None
 
 def build_job_specs(populations, ev_id, cache_path, approved_sha):
     specs = []
@@ -816,7 +927,9 @@ def build_job_specs(populations, ev_id, cache_path, approved_sha):
                     runtime_v3_identity="CHESSHEAT_ML_RUNTIME_V3",
                     runtime_v3_pin_sha=ev_id.runtime_v3_pin_sha,
                     approved_implementation_sha=approved_sha,
-                    cache_path=cache_path
+                    cache_path=cache_path,
+                    lineage=getattr(ev_id, "lineage", "V6_HISTORICAL"),
+                    replication_seal_sha=getattr(ev_id, "replication_seal_sha", None)
                 ))
     if len(specs) != 160:
         raise ValueError("Must have exactly 160 specs")
@@ -956,6 +1069,8 @@ def run_downstream_worker(spec: JobSpec):
     result["approved_implementation_sha"] = spec.approved_implementation_sha
     result["protocol_v7_sha"] = spec.protocol_v7_sha
     result["seal_v2_sha"] = spec.seal_v2_sha
+    result["replication_seal_sha"] = getattr(spec, "replication_seal_sha", None)
+    result["lineage"] = getattr(spec, "lineage", "V6_HISTORICAL")
     result["label_scientific_sha"] = spec.label_scientific_sha
     result["runtime_v3_identity"] = spec.runtime_v3_identity
     result["runtime_v3_pin_sha"] = spec.runtime_v3_pin_sha
@@ -976,6 +1091,11 @@ def validate_worker_result(spec: JobSpec, res: Dict) -> Dict:
         raise ValueError("nominal_budget mismatch")
     if res.get("seed") != spec.seed:
         raise ValueError("seed mismatch")
+
+    expected_lineage = getattr(spec, "lineage", "V6_HISTORICAL")
+    res_lineage = res.get("lineage", "V6_HISTORICAL")
+    if res_lineage != expected_lineage:
+        raise ValueError(f"Worker result lineage mismatch: expected {expected_lineage}, got {res_lineage}")
         
     if res.get("approved_implementation_sha") != spec.approved_implementation_sha:
         raise ValueError("approved_implementation_sha mismatch")
@@ -983,6 +1103,8 @@ def validate_worker_result(spec: JobSpec, res: Dict) -> Dict:
         raise ValueError("protocol_v7_sha mismatch")
     if res.get("seal_v2_sha") != spec.seal_v2_sha:
         raise ValueError("seal_v2_sha mismatch")
+    if res.get("replication_seal_sha") != getattr(spec, "replication_seal_sha", None):
+        raise ValueError("replication_seal_sha mismatch")
     if res.get("label_scientific_sha") != spec.label_scientific_sha:
         raise ValueError("label_scientific_sha mismatch")
     if res.get("runtime_v3_identity") != spec.runtime_v3_identity:
@@ -1093,9 +1215,12 @@ def validate_completed_worker_results(job_specs: List[JobSpec], results: List[Di
 
 def make_sealed_worker_result(spec: JobSpec, worker_result: Dict) -> Dict:
     for k in ["approved_implementation_sha", "protocol_v7_sha", "seal_v2_sha", 
-              "label_scientific_sha", "runtime_v3_identity", "runtime_v3_pin_sha"]:
-        if k not in worker_result:
-            worker_result[k] = getattr(spec, k)
+              "label_scientific_sha", "runtime_v3_identity", "runtime_v3_pin_sha",
+              "lineage", "replication_seal_sha"]:
+        if hasattr(spec, k):
+            v = getattr(spec, k)
+            if v is not None and k not in worker_result:
+                worker_result[k] = v
             
     payload_json = json.dumps(worker_result, sort_keys=True, separators=(',', ':'), allow_nan=False)
     payload_sha = hashlib.sha256(payload_json.encode('utf-8')).hexdigest()
@@ -1105,9 +1230,11 @@ def make_sealed_worker_result(spec: JobSpec, worker_result: Dict) -> Dict:
         "condition": spec.condition,
         "nominal_budget": spec.nominal_budget,
         "seed": spec.seed,
+        "lineage": getattr(spec, "lineage", "V6_HISTORICAL"),
         "approved_implementation_sha": spec.approved_implementation_sha,
         "protocol_v7_sha": spec.protocol_v7_sha,
         "seal_v2_sha": spec.seal_v2_sha,
+        "replication_seal_sha": getattr(spec, "replication_seal_sha", None),
         "label_scientific_sha": spec.label_scientific_sha,
         "runtime_v3_identity": spec.runtime_v3_identity,
         "runtime_v3_pin_sha": spec.runtime_v3_pin_sha,
@@ -1159,6 +1286,11 @@ def validate_sealed_worker_result(envelope: Dict, spec: JobSpec) -> Dict:
         raise ValueError("Envelope must be a dict")
     if envelope.get("schema") != "CHESSHEAT_DOWNSTREAM_WORKER_RESULT_SEAL_V1":
         raise ValueError(f"Invalid envelope schema: {envelope.get('schema')}")
+
+    expected_lineage = getattr(spec, "lineage", "V6_HISTORICAL")
+    envelope_lineage = envelope.get("lineage", "V6_HISTORICAL")
+    if envelope_lineage != expected_lineage:
+        raise ValueError(f"Envelope lineage mismatch: expected {expected_lineage}, got {envelope_lineage}")
         
     if envelope.get("condition") != spec.condition:
         raise ValueError("Envelope condition mismatch")
@@ -1173,6 +1305,8 @@ def validate_sealed_worker_result(envelope: Dict, spec: JobSpec) -> Dict:
         raise ValueError("Envelope protocol_v7_sha mismatch")
     if envelope.get("seal_v2_sha") != spec.seal_v2_sha:
         raise ValueError("Envelope seal_v2_sha mismatch")
+    if envelope.get("replication_seal_sha") != getattr(spec, "replication_seal_sha", None):
+        raise ValueError("Envelope replication_seal_sha mismatch")
     if envelope.get("label_scientific_sha") != spec.label_scientific_sha:
         raise ValueError("Envelope label_scientific_sha mismatch")
     if envelope.get("runtime_v3_identity") != spec.runtime_v3_identity:
@@ -1248,15 +1382,30 @@ def run_training_parent(
     cache_path: str,
     cache_sha: str,
     repo_root: str = ".",
-    result_dir: str = "artifacts/research/cp_representation_efficiency_training_v1/worker_results",
-    worker_fn: Optional[Callable[[JobSpec], Dict]] = None
+    result_dir: Optional[str] = None,
+    worker_fn: Optional[Callable[[JobSpec], Dict]] = None,
+    lineage: str = "V6_HISTORICAL"
 ):
     verify_approved_sha_gate(approved_sha, repo_root)
     check_real_training_authorization()
-    ev_id = verify_training_evidence_preflight(approved_sha, repo_root)
     
+    if lineage == "V6_HISTORICAL":
+        ev_id = verify_training_evidence_preflight(approved_sha, repo_root)
+        if result_dir is None:
+            result_dir = "artifacts/research/cp_representation_efficiency_training_v1/worker_results"
+        elif os.path.abspath(result_dir) == os.path.abspath(os.path.join(repo_root, "artifacts/research/cp_representation_efficiency_training_v7_rep1/worker_results")):
+            raise ValueError("Refusing to reuse replication result directory for historical V6 lineage")
+    elif lineage == "V7_REPLICATION_1":
+        ev_id = verify_replication_training_evidence_preflight(approved_sha, repo_root)
+        if result_dir is None:
+            result_dir = "artifacts/research/cp_representation_efficiency_training_v7_rep1/worker_results"
+        elif os.path.abspath(result_dir) == os.path.abspath(os.path.join(repo_root, "artifacts/research/cp_representation_efficiency_training_v1/worker_results")):
+            raise ValueError("Refusing to reuse historical V6 result directory for replication lineage")
+    else:
+        raise ValueError(f"Unknown or unsupported lineage: {lineage}")
+        
     if cache_sha != ev_id.label_scientific_sha:
-        raise ValueError("cache_sha MUST exactly equal the canonical label scientific SHA")
+        raise ValueError(f"cache_sha MUST exactly equal the canonical label scientific SHA ({ev_id.label_scientific_sha})")
         
     cache = DerivedCache(cache_path, cache_sha)
     populations = build_frozen_populations(cache)
